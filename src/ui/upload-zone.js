@@ -38,6 +38,11 @@ export function renderUploadZone() {
   pendingList.className = 'upload-pending-list';
   pendingList.hidden = true;
 
+  const rejectedNotice = document.createElement('p');
+  rejectedNotice.className = 'upload-rejected-notice';
+  rejectedNotice.setAttribute('role', 'alert');
+  rejectedNotice.hidden = true;
+
   const actions = document.createElement('div');
   actions.className = 'upload-zone-actions';
   actions.hidden = true;
@@ -59,6 +64,7 @@ export function renderUploadZone() {
 
   wrapper.appendChild(zone);
   wrapper.appendChild(pendingList);
+  wrapper.appendChild(rejectedNotice);
   wrapper.appendChild(actions);
 
   return wrapper;
@@ -67,11 +73,26 @@ export function renderUploadZone() {
 export function attachUploadZoneEvents(zoneElement, onConfirm) {
   const zone = zoneElement.querySelector('.upload-zone');
   const pendingList = zoneElement.querySelector('.upload-pending-list');
+  const rejectedNotice = zoneElement.querySelector('.upload-rejected-notice');
   const actions = zoneElement.querySelector('.upload-zone-actions');
   const confirmBtn = zoneElement.querySelector('[data-action="confirm-upload"]');
 
   let pendingFiles = [];
   let pendingUrls = [];
+
+  function renderRejectedNotice(names) {
+    if (!names || names.length === 0) {
+      rejectedNotice.hidden = true;
+      rejectedNotice.textContent = '';
+      return;
+    }
+    const list = names.join(', ');
+    rejectedNotice.textContent =
+      names.length === 1
+        ? `"${list}" wasn't added — only photo files are supported.`
+        : `${list} weren't added — only photo files are supported.`;
+    rejectedNotice.hidden = false;
+  }
 
   function renderPendingList() {
     pendingList.innerHTML = '';
@@ -103,11 +124,15 @@ export function attachUploadZoneEvents(zoneElement, onConfirm) {
   }
 
   function addFiles(fileList) {
-    const files = Array.from(fileList).filter((file) => file.type.startsWith('image/'));
-    files.forEach((file) => {
+    const allFiles = Array.from(fileList);
+    const accepted = allFiles.filter((file) => file.type.startsWith('image/'));
+    const rejected = allFiles.filter((file) => !file.type.startsWith('image/'));
+
+    accepted.forEach((file) => {
       pendingFiles.push(file);
       pendingUrls.push(URL.createObjectURL(file));
     });
+    renderRejectedNotice(rejected.map((file) => file.name));
     renderPendingList();
   }
 
@@ -122,6 +147,7 @@ export function attachUploadZoneEvents(zoneElement, onConfirm) {
     pendingUrls.forEach((url) => URL.revokeObjectURL(url));
     pendingFiles = [];
     pendingUrls = [];
+    renderRejectedNotice([]);
     renderPendingList();
   }
 
@@ -170,4 +196,9 @@ export function attachUploadZoneEvents(zoneElement, onConfirm) {
       await onConfirm(filesToUpload);
     }
   });
+
+  // Set the correct initial disabled/hidden state immediately — without this, the confirm
+  // button and pending controls default to their enabled/visible markup state until the first
+  // add/remove event fires.
+  renderPendingList();
 }

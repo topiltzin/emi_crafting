@@ -1,6 +1,7 @@
 import { formatAlbumDate } from './album-grid.js';
 import { createPhotoCard } from './photo-card.js';
 import { createEmptyState } from './empty-state.js';
+import { showConfirmDialog } from './confirm-dialog.js';
 
 export function renderAlbumView(album, photos) {
   const container = document.createElement('div');
@@ -86,7 +87,12 @@ export function attachAlbumViewEvents(container, onBack, onAddPhotos, onDeletePh
 
     if (deleteBtn) {
       const photoId = parseInt(deleteBtn.getAttribute('data-photo-id'), 10);
-      if (confirm('Delete this photo? This cannot be undone.')) {
+      const filename = deleteBtn.getAttribute('data-photo-filename');
+      const confirmed = await showConfirmDialog({
+        title: 'Delete photo?',
+        message: `"${filename || 'This craft photo'}" will be removed. This can't be undone.`
+      });
+      if (confirmed) {
         try {
           await onDeletePhoto(photoId);
         } catch (error) {

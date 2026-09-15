@@ -62,6 +62,7 @@ export function createPhotoCard(photo, options = {}) {
   deleteBtn.className = 'photo-card-delete';
   deleteBtn.setAttribute('data-action', 'delete-photo');
   deleteBtn.setAttribute('data-photo-id', photo.id);
+  deleteBtn.setAttribute('data-photo-filename', photo.filename || '');
   deleteBtn.setAttribute('aria-label', `Delete photo: ${photo.filename || 'craft photo'}`);
   deleteBtn.innerHTML = '<span aria-hidden="true">🗑️</span>';
   info.appendChild(deleteBtn);

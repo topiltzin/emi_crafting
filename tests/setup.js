@@ -40,6 +40,37 @@ if (typeof URL.revokeObjectURL !== 'function') {
   URL.revokeObjectURL = () => {};
 }
 
+// This project's jsdom/Vitest combination does not expose window.localStorage even with a
+// proper http(s) origin configured (vite.config.js's test.environmentOptions.jsdom.url). Stub a
+// minimal in-memory Storage implementation so src/modules/theme.js's appearance-preference
+// storage (and any future localStorage use) works under test the same way it does in a browser.
+if (typeof globalThis.localStorage === 'undefined' || !globalThis.localStorage) {
+  class MemoryStorage {
+    #store = new Map();
+    getItem(key) {
+      return this.#store.has(key) ? this.#store.get(key) : null;
+    }
+    setItem(key, value) {
+      this.#store.set(key, String(value));
+    }
+    removeItem(key) {
+      this.#store.delete(key);
+    }
+    clear() {
+      this.#store.clear();
+    }
+    get length() {
+      return this.#store.size;
+    }
+    key(index) {
+      return Array.from(this.#store.keys())[index] ?? null;
+    }
+  }
+  const memoryStorage = new MemoryStorage();
+  globalThis.localStorage = memoryStorage;
+  if (typeof window !== 'undefined') window.localStorage = memoryStorage;
+}
+
 // src/modules/db.js caches its sql.js Database as a module-level singleton (by design, so the
 // real app only initializes sql.js once). Within a single test file, that means every test
 // shares one growing database unless it's cleared between tests — otherwise tests that reuse

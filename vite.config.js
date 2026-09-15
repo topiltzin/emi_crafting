@@ -13,9 +13,6 @@ export default defineConfig({
     port: 5173,
     open: true
   },
-  optimizeDeps: {
-    exclude: ['sql.js']
-  },
   build: {
     target: 'esnext',
     minify: 'terser',
@@ -24,6 +21,14 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'jsdom',
+    // jsdom disables the Storage API (localStorage/sessionStorage) on the default opaque
+    // "about:blank" origin. A real http(s) URL gives the test environment a proper origin so
+    // localStorage works — needed by src/modules/theme.js's appearance-preference storage.
+    environmentOptions: {
+      jsdom: {
+        url: 'http://localhost/'
+      }
+    },
     setupFiles: ['./tests/setup.js'],
     alias: {
       'sql.js/dist/sql-wasm.wasm?url': sqlWasmUrlShim

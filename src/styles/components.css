@@ -313,6 +313,7 @@
 }
 
 .modal {
+  position: relative;
   background-color: var(--color-white);
   border-radius: var(--border-radius-lg);
   box-shadow: var(--shadow-lg);
@@ -321,6 +322,35 @@
   padding: var(--spacing-xl);
   max-height: 90vh;
   overflow-y: auto;
+}
+
+.modal-close-btn {
+  position: absolute;
+  top: var(--spacing-md);
+  right: var(--spacing-md);
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  border-radius: var(--border-radius-full);
+  color: var(--color-text-light);
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color var(--transition-fast);
+}
+
+.modal-close-btn:hover {
+  background-color: var(--color-light-pink);
+  color: var(--color-text);
+}
+
+.modal-close-btn:focus-visible {
+  outline: 3px solid var(--color-secondary);
+  outline-offset: 2px;
 }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -359,6 +389,29 @@
 
 .modal-actions button {
   padding: var(--spacing-sm) var(--spacing-lg);
+}
+
+.confirm-dialog-message {
+  color: var(--color-text);
+  line-height: 1.5;
+}
+
+.create-album-label {
+  display: block;
+  font-weight: 600;
+  color: var(--color-text);
+  margin-bottom: var(--spacing-xs);
+}
+
+.create-album-label .create-album-input {
+  margin-top: var(--spacing-xs);
+  font-weight: normal;
+}
+
+.create-album-error {
+  color: var(--color-danger);
+  font-size: var(--font-size-sm);
+  margin-top: var(--spacing-xs);
 }
 
 /* File Upload Input (legacy label, kept for compatibility) */
@@ -435,7 +488,7 @@
   margin-bottom: var(--spacing-md);
 }
 
-.upload-pending-list {
+.upload-pending-list:not([hidden]) {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
   gap: var(--spacing-sm);
@@ -473,12 +526,19 @@
   box-shadow: none;
 }
 
-.upload-zone-actions {
+.upload-zone-actions:not([hidden]) {
   display: flex;
   justify-content: center;
   gap: var(--spacing-md);
   margin-top: var(--spacing-lg);
   flex-wrap: wrap;
+}
+
+.upload-rejected-notice {
+  color: var(--color-danger);
+  font-size: var(--font-size-sm);
+  margin-top: var(--spacing-sm);
+  text-align: center;
 }
 
 /* Settings View */
@@ -514,6 +574,33 @@
 .settings-stat-value {
   font-weight: 700;
   color: var(--color-primary);
+}
+
+.settings-appearance-toggle {
+  display: flex;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
+}
+
+.settings-appearance-option {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius-full);
+  cursor: pointer;
+  transition: border-color var(--transition-fast), background-color var(--transition-fast);
+}
+
+.settings-appearance-option:has(input:checked) {
+  border-color: var(--color-primary);
+  background-color: var(--color-light-pink);
+}
+
+.settings-appearance-option input {
+  width: auto;
+  margin: 0;
 }
 
 /* Status Messages */

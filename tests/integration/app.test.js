@@ -72,29 +72,51 @@ describe('Creating an album from the hero', () => {
     await initApp();
   });
 
-  it('prompts for a title and creates a new album, then navigates to Albums', async () => {
-    vi.spyOn(window, 'prompt').mockReturnValue('Paper Crafts');
+  it('opens an in-app dialog (not window.prompt) and creates a new album, then navigates to Albums', async () => {
+    const promptSpy = vi.spyOn(window, 'prompt');
 
     const createAlbumBtn = getApp().querySelector('[data-action="create-album"]');
     createAlbumBtn.click();
+    await waitFor(() => getApp().querySelector('.modal-backdrop'));
+
+    expect(promptSpy).not.toHaveBeenCalled();
+    expect(getApp().querySelector('.modal-title').textContent).toBe('Create Album');
+
+    getApp().querySelector('.create-album-input').value = 'Paper Crafts';
+    getApp().querySelector('[data-action="create-album-confirm"]').click();
     await waitFor(() => getApp().querySelector('.app-nav-link.is-active')?.textContent.includes('Albums'));
 
     expect(getApp().querySelector('.app-nav-link.is-active').textContent).toContain('Albums');
     const albums = getAlbums();
     expect(albums.some((a) => a.title === 'Paper Crafts')).toBe(true);
 
-    window.prompt.mockRestore();
+    promptSpy.mockRestore();
   });
 
-  it('does nothing when the album title prompt is cancelled', async () => {
-    vi.spyOn(window, 'prompt').mockReturnValue(null);
+  it('does nothing when the create-album dialog is cancelled', async () => {
     const albumsBefore = getAlbums().length;
 
     getApp().querySelector('[data-action="create-album"]').click();
+    await waitFor(() => getApp().querySelector('[data-action="create-album-cancel"]'));
+    getApp().querySelector('[data-action="create-album-cancel"]').click();
     await new Promise((r) => setTimeout(r, 0));
 
     expect(getAlbums()).toHaveLength(albumsBefore);
-    window.prompt.mockRestore();
+  });
+
+  it('rejects a blank album name with a visible message and creates nothing', async () => {
+    const albumsBefore = getAlbums().length;
+
+    getApp().querySelector('[data-action="create-album"]').click();
+    await waitFor(() => getApp().querySelector('.create-album-input'));
+
+    getApp().querySelector('.create-album-input').value = '   ';
+    getApp().querySelector('[data-action="create-album-confirm"]').click();
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(getApp().querySelector('.create-album-error').hidden).toBe(false);
+    expect(getApp().querySelector('.modal-backdrop')).not.toBeNull();
+    expect(getAlbums()).toHaveLength(albumsBefore);
   });
 });
 
@@ -144,6 +166,17 @@ describe('Uploading photos through the modal', () => {
     backdrop.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     expect(getApp().querySelector('.modal-backdrop')).toBeNull();
   });
+
+  it('closes the upload modal on Escape without uploading anything', async () => {
+    getApp().querySelector('[data-action="add-photos"]').click();
+    expect(getApp().querySelector('.modal-backdrop')).not.toBeNull();
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+
+    expect(getApp().querySelector('.modal-backdrop')).toBeNull();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(getAllPhotos()).toHaveLength(0);
+  });
 });
 
 describe('Album detail view and deletion', () => {
@@ -183,12 +216,29 @@ describe('Album detail view and deletion', () => {
     await waitFor(() => getApp().querySelector('.album-grid'));
     expect(getAlbums()).toHaveLength(1);
 
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
     getApp().querySelector('[data-action="delete"]').click();
+    await waitFor(() => getApp().querySelector('[data-action="confirm-dialog-confirm"]'));
+    getApp().querySelector('[data-action="confirm-dialog-confirm"]').click();
     await waitFor(() => getAlbums().length === 0);
 
     expect(getAlbums()).toHaveLength(0);
-    window.confirm.mockRestore();
+  });
+
+  it('does not delete the album when the confirmation dialog is cancelled', async () => {
+    const { uploadPhotos } = await import('../../src/modules/photo.js');
+    await uploadPhotos([
+      new File(['x'], 'craft.jpg', { type: 'image/jpeg', lastModified: new Date('2026-09-14').getTime() })
+    ]);
+
+    clickNav('Albums');
+    await waitFor(() => getApp().querySelector('.album-grid'));
+
+    getApp().querySelector('[data-action="delete"]').click();
+    await waitFor(() => getApp().querySelector('[data-action="confirm-dialog-cancel"]'));
+    getApp().querySelector('[data-action="confirm-dialog-cancel"]').click();
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(getAlbums()).toHaveLength(1);
   });
 });
 

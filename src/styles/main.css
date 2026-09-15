@@ -71,6 +71,30 @@
   }
 }
 
+/* Explicit dark choice (Settings > Appearance), independent of the OS's own light/dark setting.
+   The prefers-color-scheme block above already handles "system" (no data-theme attribute) and
+   forcing light under a dark OS (:not([data-theme='light'])); this unconditional block is the
+   only piece needed to force dark under a light OS, since a media query can't be satisfied by
+   an attribute alone. Values are identical to the block above. */
+:root[data-theme='dark'] {
+  --color-primary: #f472b6;
+  --color-primary-hover: #ec4899;
+  --color-secondary: #a78bfa;
+  --color-secondary-hover: #8b5cf6;
+  --color-danger: #ef4444;
+  --color-danger-hover: #dc2626;
+  --color-success: #22c55e;
+  --color-border: #4c3a63;
+  --color-background: #241a35;
+  --color-text: #f3e8ff;
+  --color-text-light: #c9b8dd;
+  --color-light-pink: #3a2340;
+  --color-light-purple: #2f2350;
+  --color-peach: #3a2c28;
+  --color-white: #2d2140;
+  --gradient-soft: linear-gradient(135deg, #3a2340 0%, #2f2350 100%);
+}
+
 * {
   margin: 0;
   padding: 0;

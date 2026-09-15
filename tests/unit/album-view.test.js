@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderAlbumView, attachAlbumViewEvents } from '../../src/ui/album-view.js';
 
 const album = { id: 1, album_date: '2026-09-14', title: null, photo_count: 2 };
@@ -28,12 +28,16 @@ describe('renderAlbumView', () => {
 });
 
 describe('attachAlbumViewEvents', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '<div id="app"></div>';
+  });
+
   it('wires back, add-photos, and delete-photo actions', async () => {
     const view = renderAlbumView(album, photos);
+    document.getElementById('app').appendChild(view);
     const onBack = vi.fn();
     const onAddPhotos = vi.fn();
     const onDeletePhoto = vi.fn().mockResolvedValue();
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
 
     attachAlbumViewEvents(view, onBack, onAddPhotos, onDeletePhoto);
 
@@ -44,22 +48,23 @@ describe('attachAlbumViewEvents', () => {
     expect(onAddPhotos).toHaveBeenCalledTimes(1);
 
     view.querySelector('[data-action="delete-photo"]').click();
+    expect(document.querySelector('.modal-backdrop')).not.toBeNull();
+    document.querySelector('[data-action="confirm-dialog-confirm"]').click();
     await Promise.resolve();
     await Promise.resolve();
     expect(onDeletePhoto).toHaveBeenCalledWith(10);
-
-    window.confirm.mockRestore();
   });
 
-  it('does not delete when the confirm dialog is declined', () => {
+  it('does not delete when the confirm dialog is declined', async () => {
     const view = renderAlbumView(album, photos);
+    document.getElementById('app').appendChild(view);
     const onDeletePhoto = vi.fn();
-    vi.spyOn(window, 'confirm').mockReturnValue(false);
 
     attachAlbumViewEvents(view, vi.fn(), vi.fn(), onDeletePhoto);
     view.querySelector('[data-action="delete-photo"]').click();
+    document.querySelector('[data-action="confirm-dialog-cancel"]').click();
+    await Promise.resolve();
 
     expect(onDeletePhoto).not.toHaveBeenCalled();
-    window.confirm.mockRestore();
   });
 });

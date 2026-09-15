@@ -16,6 +16,9 @@ import { renderNav, attachNavEvents } from './ui/nav.js';
 import { renderHero, attachHeroEvents } from './ui/hero.js';
 import { renderPhotoGallery, attachPhotoGalleryEvents } from './ui/photo-gallery.js';
 import { renderUploadZone, attachUploadZoneEvents } from './ui/upload-zone.js';
+import { openDialog } from './ui/dialog.js';
+import { showCreateAlbumDialog } from './ui/create-album-dialog.js';
+import { initTheme, setThemePreference } from './modules/theme.js';
 import { getPhotos, getAlbum } from './modules/db.js';
 
 let currentSection = 'home';
@@ -23,6 +26,7 @@ let currentAlbumId = null;
 
 export async function initApp() {
   try {
+    initTheme();
     await initDB();
 
     buildShell();
@@ -117,7 +121,7 @@ async function renderFavoritesSection(main) {
 }
 
 async function renderSettingsSection(main) {
-  const { renderSettingsView } = await import('./ui/settings-view.js');
+  const { renderSettingsView, attachSettingsViewEvents } = await import('./ui/settings-view.js');
   const { version: appVersion } = await import('../package.json');
   const albums = getAlbums();
   const photos = getAllPhotos({ limit: 100000 });
@@ -127,6 +131,7 @@ async function renderSettingsSection(main) {
     albumCount: albums.length,
     appVersion
   });
+  attachSettingsViewEvents(view, (theme) => setThemePreference(theme));
   main.appendChild(view);
 }
 
@@ -204,7 +209,7 @@ function handleAddPhotosEntry() {
 }
 
 async function handleCreateAlbum() {
-  const title = window.prompt("Name your new album (e.g. 'Paper Crafts'):", '');
+  const title = await showCreateAlbumDialog();
   if (title === null) return;
 
   const today = new Date().toISOString().slice(0, 10);
@@ -218,45 +223,19 @@ async function handleCreateAlbum() {
 }
 
 function openUploadModal(onConfirm) {
-  const app = document.getElementById('app');
-
-  const backdrop = document.createElement('div');
-  backdrop.className = 'modal-backdrop';
-
-  const modal = document.createElement('div');
-  modal.className = 'modal';
-
-  const title = document.createElement('h2');
-  title.className = 'modal-title';
-  title.textContent = 'Add Photos';
-
-  const content = document.createElement('div');
-  content.className = 'modal-content';
   const zone = renderUploadZone();
-  content.appendChild(zone);
 
-  modal.appendChild(title);
-  modal.appendChild(content);
-  backdrop.appendChild(modal);
-  app.appendChild(backdrop);
-
-  function closeModal() {
-    backdrop.remove();
-  }
+  const { close } = openDialog({ title: 'Add Photos', content: zone });
 
   attachUploadZoneEvents(zone, async (files) => {
-    closeModal();
+    close();
     await onConfirm(files);
   });
 
   zone.addEventListener('click', (event) => {
     if (event.target.closest('[data-action="cancel-upload"]')) {
-      closeModal();
+      close();
     }
-  });
-
-  backdrop.addEventListener('click', (event) => {
-    if (event.target === backdrop) closeModal();
   });
 }
 

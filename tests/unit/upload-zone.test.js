@@ -85,4 +85,80 @@ describe('upload-zone pending file state', () => {
 
     zone.remove();
   });
+
+  it('starts with the confirm button disabled and the action/pending controls hidden, before any file is added', () => {
+    const zone = renderUploadZone();
+    document.body.appendChild(zone);
+    attachUploadZoneEvents(zone, vi.fn());
+
+    const confirmBtn = zone.querySelector('[data-action="confirm-upload"]');
+    expect(confirmBtn.disabled).toBe(true);
+    expect(zone.querySelector('.upload-zone-actions').hidden).toBe(true);
+    expect(zone.querySelector('.upload-pending-list').hidden).toBe(true);
+    expect(getComputedStyle(zone.querySelector('.upload-zone-actions')).display).toBe('none');
+
+    zone.remove();
+  });
+
+  it('enables the confirm button once a file is pending, and disables it again once cleared', () => {
+    const zone = renderUploadZone();
+    document.body.appendChild(zone);
+    attachUploadZoneEvents(zone, vi.fn());
+
+    const confirmBtn = zone.querySelector('[data-action="confirm-upload"]');
+    const dropTarget = zone.querySelector('.upload-zone');
+    const dropEvent = new Event('drop', { bubbles: true, cancelable: true });
+    dropEvent.dataTransfer = { files: [makeImageFile('a.jpg')] };
+    dropTarget.dispatchEvent(dropEvent);
+
+    expect(confirmBtn.disabled).toBe(false);
+    expect(zone.querySelector('.upload-zone-actions').hidden).toBe(false);
+
+    zone.querySelector('[data-action="cancel-upload"]').click();
+
+    expect(confirmBtn.disabled).toBe(true);
+    expect(zone.querySelector('.upload-zone-actions').hidden).toBe(true);
+
+    zone.remove();
+  });
+
+  it('reports a rejected non-image file while still accepting a co-selected valid image', () => {
+    const zone = renderUploadZone();
+    document.body.appendChild(zone);
+    attachUploadZoneEvents(zone, vi.fn());
+
+    const dropTarget = zone.querySelector('.upload-zone');
+    const dropEvent = new Event('drop', { bubbles: true, cancelable: true });
+    dropEvent.dataTransfer = {
+      files: [makeImageFile('a.jpg'), new File(['x'], 'notes.txt', { type: 'text/plain' })]
+    };
+    dropTarget.dispatchEvent(dropEvent);
+
+    expect(zone.querySelectorAll('.upload-pending-item')).toHaveLength(1);
+    const notice = zone.querySelector('.upload-rejected-notice');
+    expect(notice.hidden).toBe(false);
+    expect(notice.textContent).toContain('notes.txt');
+
+    zone.remove();
+  });
+
+  it('clears the rejected-file notice on the next successful add', () => {
+    const zone = renderUploadZone();
+    document.body.appendChild(zone);
+    attachUploadZoneEvents(zone, vi.fn());
+
+    const dropTarget = zone.querySelector('.upload-zone');
+    const rejectEvent = new Event('drop', { bubbles: true, cancelable: true });
+    rejectEvent.dataTransfer = { files: [new File(['x'], 'notes.txt', { type: 'text/plain' })] };
+    dropTarget.dispatchEvent(rejectEvent);
+    expect(zone.querySelector('.upload-rejected-notice').hidden).toBe(false);
+
+    const acceptEvent = new Event('drop', { bubbles: true, cancelable: true });
+    acceptEvent.dataTransfer = { files: [makeImageFile('a.jpg')] };
+    dropTarget.dispatchEvent(acceptEvent);
+
+    expect(zone.querySelector('.upload-rejected-notice').hidden).toBe(true);
+
+    zone.remove();
+  });
 });

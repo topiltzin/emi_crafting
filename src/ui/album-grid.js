@@ -1,4 +1,5 @@
 import { createEmptyState } from './empty-state.js';
+import { showConfirmDialog } from './confirm-dialog.js';
 
 const ACCENT_COUNT = 4;
 
@@ -82,6 +83,8 @@ export function createAlbumCard(album, index = 0) {
   deleteBtn.textContent = 'Delete';
   deleteBtn.setAttribute('data-action', 'delete');
   deleteBtn.setAttribute('data-album-id', album.id);
+  deleteBtn.setAttribute('data-album-title', album.title || formatAlbumDate(album.album_date));
+  deleteBtn.setAttribute('data-photo-count', album.photo_count);
 
   actions.appendChild(viewBtn);
   actions.appendChild(deleteBtn);
@@ -98,7 +101,7 @@ export function createAlbumCard(album, index = 0) {
 }
 
 export function attachAlbumGridEvents(gridElement, onViewAlbum, onDeleteAlbum) {
-  gridElement.addEventListener('click', (event) => {
+  gridElement.addEventListener('click', async (event) => {
     const viewBtn = event.target.closest('[data-action="view"]');
     const deleteBtn = event.target.closest('[data-action="delete"]');
 
@@ -110,7 +113,13 @@ export function attachAlbumGridEvents(gridElement, onViewAlbum, onDeleteAlbum) {
 
     if (deleteBtn) {
       const albumId = parseInt(deleteBtn.getAttribute('data-album-id'), 10);
-      if (confirm('Delete this album and all photos? This cannot be undone.')) {
+      const albumTitle = deleteBtn.getAttribute('data-album-title');
+      const photoCount = deleteBtn.getAttribute('data-photo-count');
+      const confirmed = await showConfirmDialog({
+        title: 'Delete album?',
+        message: `"${albumTitle}" and its ${photoCount} photo${photoCount !== '1' ? 's' : ''} will be removed. This can't be undone.`
+      });
+      if (confirmed) {
         onDeleteAlbum(albumId);
       }
       return;
