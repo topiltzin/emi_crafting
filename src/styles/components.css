@@ -1,0 +1,628 @@
+/* Album Grid & Cards */
+
+.album-card {
+  display: flex;
+  flex-direction: column;
+  border: none;
+  border-radius: var(--border-radius-lg);
+  overflow: hidden;
+  background-color: var(--color-white);
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow var(--transition-base), transform var(--transition-base);
+  cursor: pointer;
+}
+
+.album-card:hover {
+  box-shadow: var(--shadow-lg);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .album-card:hover {
+    transform: translateY(-4px);
+  }
+}
+
+.album-card.dragging {
+  opacity: 0.5;
+  cursor: grabbing;
+  transform: scale(0.95);
+}
+
+.album-card.drag-over {
+  border-top: 3px solid var(--color-primary);
+}
+
+.album-thumbnail {
+  width: 100%;
+  height: 180px;
+  object-fit: cover;
+  background-color: var(--color-light-pink);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2.5rem;
+}
+
+.album-thumbnail-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Colorful gradient accent bar cycled across album cards */
+.album-card-accent {
+  height: 6px;
+  width: 100%;
+}
+
+.album-card--accent-1 .album-card-accent {
+  background: linear-gradient(90deg, #ec4899, #f472b6);
+}
+
+.album-card--accent-2 .album-card-accent {
+  background: linear-gradient(90deg, #8b5cf6, #a78bfa);
+}
+
+.album-card--accent-3 .album-card-accent {
+  background: linear-gradient(90deg, #f59e0b, #fbbf24);
+}
+
+.album-card--accent-4 .album-card-accent {
+  background: linear-gradient(90deg, #ec4899, #8b5cf6);
+}
+
+.album-info {
+  padding: var(--spacing-md);
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.album-title {
+  font-family: var(--font-heading);
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+  margin-bottom: var(--spacing-xs);
+  color: var(--color-text);
+}
+
+.album-date {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-light);
+  margin-bottom: var(--spacing-sm);
+}
+
+.album-count {
+  display: inline-block;
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  color: var(--color-secondary);
+  background-color: var(--color-light-purple);
+  border-radius: var(--border-radius-full);
+  padding: 2px var(--spacing-sm);
+  margin-bottom: var(--spacing-md);
+  width: fit-content;
+}
+
+.album-actions {
+  display: flex;
+  gap: var(--spacing-sm);
+}
+
+.album-actions button {
+  flex: 1;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  font-size: var(--font-size-sm);
+}
+
+/* Photo Tiles (legacy per-album grid, superseded by .photo-card but kept for compatibility) */
+
+.photo-grid,
+.photo-gallery-grid {
+  display: grid;
+  grid-auto-flow: dense;
+  gap: var(--spacing-md);
+  margin-bottom: var(--spacing-xl);
+}
+
+.photo-tile {
+  position: relative;
+  width: 100%;
+  padding-bottom: 100%;
+  overflow: hidden;
+  border-radius: var(--border-radius);
+  background-color: var(--color-light-pink);
+  cursor: pointer;
+}
+
+.photo-tile-image {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.photo-tile:hover .photo-tile-actions {
+  opacity: 1;
+}
+
+.photo-tile-actions {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(59, 40, 80, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+
+.photo-tile-actions button {
+  background-color: var(--color-danger);
+  color: white;
+  padding: var(--spacing-md) var(--spacing-lg);
+  font-size: var(--font-size-sm);
+}
+
+.photo-tile-actions button:hover {
+  background-color: var(--color-danger-hover);
+}
+
+/* Photo Card (shared: My Photos, Favorites, Album view) */
+
+.photo-card {
+  border-radius: var(--border-radius-lg);
+  overflow: hidden;
+  background-color: var(--color-white);
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow var(--transition-base), transform var(--transition-base);
+}
+
+.photo-card:hover {
+  box-shadow: var(--shadow-lg);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .photo-card:hover {
+    transform: translateY(-4px);
+  }
+}
+
+.photo-card-media {
+  position: relative;
+  width: 100%;
+  padding-bottom: 100%;
+  background-color: var(--color-light-pink);
+}
+
+.photo-card-image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.photo-card-checkbox-label {
+  position: absolute;
+  top: var(--spacing-sm);
+  left: var(--spacing-sm);
+  z-index: 1;
+}
+
+.photo-card-checkbox {
+  width: 1.25rem;
+  height: 1.25rem;
+  cursor: pointer;
+}
+
+.photo-card-favorite {
+  position: absolute;
+  top: var(--spacing-sm);
+  right: var(--spacing-sm);
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 50%;
+  background-color: rgba(255, 255, 255, 0.9);
+  color: var(--color-text-light);
+  font-size: 1.1rem;
+  padding: 0;
+  box-shadow: var(--shadow-sm);
+}
+
+.photo-card-favorite.is-favorite {
+  color: var(--color-primary);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .photo-card-favorite {
+    animation: none;
+  }
+
+  .photo-card-favorite.is-favorite {
+    animation: heart-pop 320ms ease-out;
+  }
+}
+
+@keyframes heart-pop {
+  0% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(1.35);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.photo-card-info {
+  padding: var(--spacing-sm) var(--spacing-md);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
+}
+
+.photo-card-date {
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  color: var(--color-secondary);
+  background-color: var(--color-light-purple);
+  border-radius: var(--border-radius-full);
+  padding: 2px var(--spacing-sm);
+}
+
+.photo-card-album {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-light);
+}
+
+.photo-card-delete {
+  margin-left: auto;
+  background: none;
+  color: var(--color-text-light);
+  padding: var(--spacing-xs);
+  box-shadow: none;
+}
+
+.photo-card-delete:hover {
+  color: var(--color-danger);
+}
+
+/* Modals & Dialogs */
+
+.modal-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(59, 40, 80, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal {
+  background-color: var(--color-white);
+  border-radius: var(--border-radius-lg);
+  box-shadow: var(--shadow-lg);
+  max-width: 500px;
+  width: 90%;
+  padding: var(--spacing-xl);
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .modal {
+    animation: modal-in 220ms ease-out;
+  }
+}
+
+@keyframes modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.modal-title {
+  font-family: var(--font-heading);
+  font-size: var(--font-size-xl);
+  font-weight: 700;
+  margin-bottom: var(--spacing-lg);
+}
+
+.modal-content {
+  margin-bottom: var(--spacing-lg);
+}
+
+.modal-actions {
+  display: flex;
+  gap: var(--spacing-md);
+  justify-content: flex-end;
+}
+
+.modal-actions button {
+  padding: var(--spacing-sm) var(--spacing-lg);
+}
+
+/* File Upload Input (legacy label, kept for compatibility) */
+
+.file-input-wrapper {
+  position: relative;
+  overflow: hidden;
+  display: inline-block;
+}
+
+.file-input-wrapper input[type='file'] {
+  position: absolute;
+  left: -9999px;
+}
+
+.file-input-label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--spacing-sm) var(--spacing-md);
+  background-color: var(--color-primary);
+  color: white;
+  border-radius: var(--border-radius);
+  cursor: pointer;
+  transition: background-color var(--transition-fast);
+}
+
+.file-input-label:hover {
+  background-color: var(--color-primary-hover);
+}
+
+/* Upload Zone */
+
+.upload-zone {
+  border: 3px dashed var(--color-secondary);
+  border-radius: var(--border-radius-lg);
+  background-color: var(--color-light-purple);
+  padding: var(--spacing-xl);
+  text-align: center;
+  transition: background-color var(--transition-base), border-color var(--transition-base);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .upload-zone {
+    transition: background-color var(--transition-base), border-color var(--transition-base),
+      transform var(--transition-fast);
+  }
+}
+
+.upload-zone.is-dragover {
+  background-color: var(--color-light-pink);
+  border-color: var(--color-primary);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .upload-zone.is-dragover {
+    transform: scale(1.01);
+  }
+}
+
+.upload-zone-icon {
+  font-size: 3rem;
+  margin-bottom: var(--spacing-sm);
+}
+
+.upload-zone-text {
+  font-weight: 700;
+  color: var(--color-text);
+  margin-bottom: var(--spacing-xs);
+}
+
+.upload-zone-subtext {
+  color: var(--color-text-light);
+  margin-bottom: var(--spacing-md);
+}
+
+.upload-pending-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+  gap: var(--spacing-sm);
+  margin-top: var(--spacing-lg);
+  text-align: left;
+}
+
+.upload-pending-item {
+  position: relative;
+  border-radius: var(--border-radius);
+  overflow: hidden;
+  background-color: var(--color-white);
+  box-shadow: var(--shadow-sm);
+}
+
+.upload-pending-thumb {
+  width: 100%;
+  height: 100px;
+  object-fit: cover;
+  display: block;
+}
+
+.upload-pending-remove {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 50%;
+  background-color: rgba(59, 40, 80, 0.75);
+  color: white;
+  font-size: 0.75rem;
+  padding: 0;
+  line-height: 1;
+  box-shadow: none;
+}
+
+.upload-zone-actions {
+  display: flex;
+  justify-content: center;
+  gap: var(--spacing-md);
+  margin-top: var(--spacing-lg);
+  flex-wrap: wrap;
+}
+
+/* Settings View */
+
+.settings-view {
+  max-width: 640px;
+  margin: 0 auto;
+}
+
+.settings-card {
+  background-color: var(--color-white);
+  border-radius: var(--border-radius-lg);
+  box-shadow: var(--shadow-sm);
+  padding: var(--spacing-lg);
+  margin-bottom: var(--spacing-lg);
+}
+
+.settings-card h3 {
+  margin-bottom: var(--spacing-md);
+}
+
+.settings-stat-row {
+  display: flex;
+  justify-content: space-between;
+  padding: var(--spacing-sm) 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.settings-stat-row:last-child {
+  border-bottom: none;
+}
+
+.settings-stat-value {
+  font-weight: 700;
+  color: var(--color-primary);
+}
+
+/* Status Messages */
+
+.alert {
+  padding: var(--spacing-md);
+  border-radius: var(--border-radius);
+  margin-bottom: var(--spacing-lg);
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+}
+
+.alert-error {
+  background-color: #fee;
+  border: 1px solid #fcc;
+  color: #c33;
+}
+
+.alert-success {
+  background-color: var(--color-light-purple);
+  border: 1px solid var(--color-secondary);
+  color: var(--color-secondary-hover);
+}
+
+/* Spinner/Loading */
+
+.spinner {
+  display: inline-block;
+  width: 24px;
+  height: 24px;
+  border: 3px solid var(--color-light-purple);
+  border-top-color: var(--color-primary);
+  border-radius: 50%;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .spinner {
+    animation: spin 0.8s linear infinite;
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Empty State */
+
+.empty-state-icon {
+  font-size: 3.5rem;
+  margin-bottom: var(--spacing-md);
+}
+
+.empty-state-heading {
+  font-family: var(--font-heading);
+}
+
+/* Fade/slide-in for sections */
+
+@media (prefers-reduced-motion: no-preference) {
+  .hero,
+  .date-section {
+    animation: section-in 400ms ease-out;
+  }
+}
+
+@keyframes section-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Accessibility */
+
+.album-card:focus-visible,
+.photo-card:focus-visible,
+.photo-tile:focus-visible {
+  outline: 3px solid var(--color-secondary);
+  outline-offset: 2px;
+}
+
+.photo-tile:focus-within .photo-tile-actions {
+  opacity: 1;
+}
+
+button:focus-visible {
+  outline: 3px solid var(--color-secondary);
+  outline-offset: 2px;
+}
+
+/* Touch & Tablet adjustments */
+
+@media (hover: none) {
+  .album-card {
+    cursor: default;
+  }
+
+  .photo-tile-actions {
+    opacity: 1;
+  }
+
+  .photo-card-delete {
+    opacity: 1;
+  }
+}

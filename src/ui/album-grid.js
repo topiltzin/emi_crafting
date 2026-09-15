@@ -1,0 +1,135 @@
+import { createEmptyState } from './empty-state.js';
+
+const ACCENT_COUNT = 4;
+
+export function renderAlbumGrid(albums) {
+  const container = document.createElement('div');
+  container.className = 'album-grid grid';
+  container.setAttribute('data-total-albums', albums.length);
+
+  if (albums.length === 0) {
+    const empty = createEmptyState('albums');
+    empty.style.gridColumn = '1 / -1';
+    container.appendChild(empty);
+    return container;
+  }
+
+  albums.forEach((album, index) => {
+    const card = createAlbumCard(album, index);
+    container.appendChild(card);
+  });
+
+  return container;
+}
+
+export function createAlbumCard(album, index = 0) {
+  const card = document.createElement('div');
+  const accent = (index % ACCENT_COUNT) + 1;
+  card.className = `album-card album-card--accent-${accent}`;
+  card.setAttribute('draggable', 'true');
+  card.setAttribute('data-album-id', album.id);
+  card.setAttribute('aria-label', `Album: ${album.album_date}, ${album.photo_count} photos`);
+  card.setAttribute('tabindex', '0');
+
+  const accentBar = document.createElement('div');
+  accentBar.className = 'album-card-accent';
+  card.appendChild(accentBar);
+
+  // Cover image or placeholder
+  const thumbnail = document.createElement('div');
+  thumbnail.className = 'album-thumbnail';
+  if (album.cover_thumbnail_base64) {
+    const img = document.createElement('img');
+    img.className = 'album-thumbnail-img';
+    img.src = album.cover_thumbnail_base64.startsWith('data:')
+      ? album.cover_thumbnail_base64
+      : `data:image/jpeg;base64,${album.cover_thumbnail_base64}`;
+    img.alt = `Cover photo for ${album.title || formatAlbumDate(album.album_date)}`;
+    img.loading = 'lazy';
+    thumbnail.appendChild(img);
+  } else {
+    thumbnail.textContent = '📁';
+    thumbnail.setAttribute('aria-hidden', 'true');
+  }
+
+  // Info section
+  const info = document.createElement('div');
+  info.className = 'album-info';
+
+  const title = document.createElement('h3');
+  title.className = 'album-title';
+  title.textContent = album.title || formatAlbumDate(album.album_date);
+
+  const date = document.createElement('p');
+  date.className = 'album-date';
+  date.textContent = album.album_date;
+
+  const count = document.createElement('p');
+  count.className = 'album-count';
+  count.textContent = `${album.photo_count} photo${album.photo_count !== 1 ? 's' : ''}`;
+
+  const actions = document.createElement('div');
+  actions.className = 'album-actions';
+
+  const viewBtn = document.createElement('button');
+  viewBtn.className = 'btn btn-primary btn-sm';
+  viewBtn.textContent = 'View';
+  viewBtn.setAttribute('data-action', 'view');
+  viewBtn.setAttribute('data-album-id', album.id);
+
+  const deleteBtn = document.createElement('button');
+  deleteBtn.className = 'btn btn-danger btn-sm';
+  deleteBtn.textContent = 'Delete';
+  deleteBtn.setAttribute('data-action', 'delete');
+  deleteBtn.setAttribute('data-album-id', album.id);
+
+  actions.appendChild(viewBtn);
+  actions.appendChild(deleteBtn);
+
+  info.appendChild(title);
+  info.appendChild(date);
+  info.appendChild(count);
+  info.appendChild(actions);
+
+  card.appendChild(thumbnail);
+  card.appendChild(info);
+
+  return card;
+}
+
+export function attachAlbumGridEvents(gridElement, onViewAlbum, onDeleteAlbum) {
+  gridElement.addEventListener('click', (event) => {
+    const viewBtn = event.target.closest('[data-action="view"]');
+    const deleteBtn = event.target.closest('[data-action="delete"]');
+
+    if (viewBtn) {
+      const albumId = parseInt(viewBtn.getAttribute('data-album-id'), 10);
+      onViewAlbum(albumId);
+      return;
+    }
+
+    if (deleteBtn) {
+      const albumId = parseInt(deleteBtn.getAttribute('data-album-id'), 10);
+      if (confirm('Delete this album and all photos? This cannot be undone.')) {
+        onDeleteAlbum(albumId);
+      }
+      return;
+    }
+  });
+}
+
+export function attachAlbumDragDrop(gridElement, onReorder) {
+  // Import the drag-drop module
+  import('./../modules/dnd.js').then(({ initDragDrop }) => {
+    initDragDrop(gridElement, onReorder);
+  });
+}
+
+export function formatAlbumDate(dateString) {
+  const date = new Date(dateString + 'T00:00:00Z');
+  return date.toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric'
+  });
+}
