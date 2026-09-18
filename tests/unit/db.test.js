@@ -13,7 +13,8 @@ import {
   getPhotos,
   getAllPhotos,
   deletePhoto,
-  toggleFavorite
+  toggleFavorite,
+  getPhotoOriginalUrl
 } from '../../src/modules/db.js';
 
 describe('Database Module (Supabase-backed)', () => {
@@ -374,6 +375,35 @@ describe('Database Module (Supabase-backed)', () => {
       fakeClient._setNetworkDown(true);
 
       await expect(createAlbum('2026-09-14')).rejects.toMatchObject({ code: 'network' });
+    });
+  });
+
+  describe('getPhotoOriginalUrl', () => {
+    it('resolves the full-resolution image URL for a photo\'s storage_path', async () => {
+      const album = await createAlbum('2026-09-14');
+      const photo = await createPhoto(album.id, {
+        filename: 'full-res.jpg',
+        file_size: 2048,
+        mime_type: 'image/jpeg',
+        photo_data_base64: btoa('original data')
+      });
+
+      const url = await getPhotoOriginalUrl(photo.storage_path);
+      expect(url).toBe(`https://fake.local/storage/photos/owner-1/${photo.id}/original`);
+    });
+
+    it('rejects with code "network" when Supabase Storage is unreachable', async () => {
+      const album = await createAlbum('2026-09-14');
+      const photo = await createPhoto(album.id, {
+        filename: 'full-res.jpg',
+        file_size: 2048,
+        mime_type: 'image/jpeg',
+        photo_data_base64: btoa('original data')
+      });
+
+      fakeClient._setNetworkDown(true);
+
+      await expect(getPhotoOriginalUrl(photo.storage_path)).rejects.toMatchObject({ code: 'network' });
     });
   });
 });

@@ -20,12 +20,13 @@ import { renderAlbumView, attachAlbumViewEvents } from './ui/album-view.js';
 import { renderNav, attachNavEvents } from './ui/nav.js';
 import { renderHero, attachHeroEvents } from './ui/hero.js';
 import { renderPhotoGallery, attachPhotoGalleryEvents } from './ui/photo-gallery.js';
+import { openPhotoViewer } from './ui/photo-viewer.js';
 import { renderUploadZone, attachUploadZoneEvents } from './ui/upload-zone.js';
 import { openDialog } from './ui/dialog.js';
 import { showCreateAlbumDialog, showRenameAlbumDialog } from './ui/create-album-dialog.js';
 import { showConfirmDialog } from './ui/confirm-dialog.js';
 import { initTheme, setThemePreference } from './modules/theme.js';
-import { getPhotos, getAlbum } from './modules/db.js';
+import { getPhoto, getPhotos, getAlbum } from './modules/db.js';
 import { getSession, signInOwner } from './modules/supabase-client.js';
 import { renderAuthView } from './ui/auth-view.js';
 
@@ -151,7 +152,7 @@ async function renderHomeSection(main) {
 
   const photos = await getAllPhotos();
   const gallery = renderPhotoGallery(photos, { emptyStateVariant: 'photos' });
-  attachPhotoGalleryEvents(gallery, handleToggleFavorite, handleDeletePhotoFromGallery);
+  attachPhotoGalleryEvents(gallery, handleToggleFavorite, handleDeletePhotoFromGallery, handleOpenPhoto);
   attachEmptyStateBridge(gallery);
   main.appendChild(gallery);
 }
@@ -159,7 +160,7 @@ async function renderHomeSection(main) {
 async function renderPhotosSection(main) {
   const photos = await getAllPhotos();
   const gallery = renderPhotoGallery(photos, { emptyStateVariant: 'photos' });
-  attachPhotoGalleryEvents(gallery, handleToggleFavorite, handleDeletePhotoFromGallery);
+  attachPhotoGalleryEvents(gallery, handleToggleFavorite, handleDeletePhotoFromGallery, handleOpenPhoto);
   attachEmptyStateBridge(gallery);
   main.appendChild(gallery);
 }
@@ -167,7 +168,7 @@ async function renderPhotosSection(main) {
 async function renderFavoritesSection(main) {
   const photos = await getAllPhotos({ favoritesOnly: true });
   const gallery = renderPhotoGallery(photos, { emptyStateVariant: 'favorites' });
-  attachPhotoGalleryEvents(gallery, handleToggleFavorite, handleDeletePhotoFromGallery);
+  attachPhotoGalleryEvents(gallery, handleToggleFavorite, handleDeletePhotoFromGallery, handleOpenPhoto);
   attachEmptyStateBridge(gallery);
   main.appendChild(gallery);
 }
@@ -238,7 +239,7 @@ async function renderAlbumDetail(albumId) {
     attachAlbumViewEvents(view, handleBackToAlbums, handleAddPhotos, handleDeletePhoto, () =>
       handleEditAlbum(albumId)
     );
-    attachPhotoGalleryEvents(view, handleToggleFavorite, null);
+    attachPhotoGalleryEvents(view, handleToggleFavorite, null, handleOpenPhoto);
   } catch (error) {
     console.error('Failed to load album:', error);
     main.removeChild(loading);
@@ -403,6 +404,17 @@ async function handleDeletePhoto(photoId) {
 async function handleDeletePhotoFromGallery(photoId) {
   await deletePhoto(photoId, false);
   await renderSection(currentSection);
+}
+
+async function handleOpenPhoto(photoId) {
+  try {
+    const photo = await getPhoto(photoId);
+    if (!photo) return;
+    openPhotoViewer(photo);
+  } catch (error) {
+    console.error('Failed to open photo:', error);
+    showError(describeError(error, 'Failed to open photo'));
+  }
 }
 
 async function handleToggleFavorite(photoId) {

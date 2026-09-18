@@ -78,16 +78,19 @@ export function renderPhotoGallery(photos, options = {}) {
   return container;
 }
 
-export function attachPhotoGalleryEvents(galleryElement, onToggleFavorite, onDeletePhoto) {
+export function attachPhotoGalleryEvents(galleryElement, onToggleFavorite, onDeletePhoto, onOpenPhoto) {
   galleryElement.addEventListener('photo-card:favorite-toggle', (event) => {
     onToggleFavorite(event.detail.photoId);
   });
 
   galleryElement.addEventListener('click', async (event) => {
-    const deleteBtn = event.target.closest('[data-action="delete-photo"]');
-    if (deleteBtn && onDeletePhoto) {
-      const photoId = deleteBtn.getAttribute('data-photo-id');
-      const filename = deleteBtn.getAttribute('data-photo-filename');
+    const card = event.target.closest('.photo-card');
+    const actionEl = event.target.closest('[data-action]');
+    const action = actionEl ? actionEl.getAttribute('data-action') : null;
+
+    if (action === 'delete-photo' && onDeletePhoto) {
+      const photoId = actionEl.getAttribute('data-photo-id');
+      const filename = actionEl.getAttribute('data-photo-filename');
       const confirmed = await showConfirmDialog({
         title: 'Delete photo?',
         message: `"${filename || 'This craft photo'}" will be removed. This can't be undone.`
@@ -99,16 +102,34 @@ export function attachPhotoGalleryEvents(galleryElement, onToggleFavorite, onDel
           alert(`Failed to delete photo: ${error.message}`);
         }
       }
+      return;
     }
 
-    const emptyStateCta = event.target.closest('[data-action="add-photos"], [data-action="browse-photos"]');
-    if (emptyStateCta) {
+    if (action === 'add-photos' || action === 'browse-photos') {
       galleryElement.dispatchEvent(
         new CustomEvent('photo-gallery:empty-state-cta', {
           bubbles: true,
-          detail: { action: emptyStateCta.getAttribute('data-action') }
+          detail: { action }
         })
       );
+      return;
     }
+
+    // Anywhere else on the card opens the full-resolution viewer — the card looks and hovers
+    // like it's clickable everywhere, so it must behave that way (mirrors .album-card).
+    if (card && !action && typeof onOpenPhoto === 'function') {
+      onOpenPhoto(card.getAttribute('data-photo-id'));
+    }
+  });
+
+  galleryElement.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter' && event.key !== ' ' && event.key !== 'Spacebar') return;
+    // Only when the keypress originates on the card itself — a nested <button> (favorite/
+    // delete) already handles its own Enter/Space activation natively.
+    if (!event.target.classList || !event.target.classList.contains('photo-card')) return;
+    if (typeof onOpenPhoto !== 'function') return;
+
+    event.preventDefault();
+    onOpenPhoto(event.target.getAttribute('data-photo-id'));
   });
 }

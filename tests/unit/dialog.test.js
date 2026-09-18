@@ -106,6 +106,22 @@ describe('openDialog', () => {
     expect(document.querySelector('.modal-title').textContent).toBe('');
   });
 
+  it('appends an optional className to the modal element when provided', () => {
+    const { wrapper } = makeContentWithInput();
+    openDialog({ title: 'Test Dialog', content: wrapper, onClose: vi.fn(), className: 'photo-viewer' });
+
+    const modal = document.querySelector('.modal');
+    expect(modal.classList.contains('modal')).toBe(true);
+    expect(modal.classList.contains('photo-viewer')).toBe(true);
+  });
+
+  it('omitting className keeps today\'s exact class list', () => {
+    const { wrapper } = makeContentWithInput();
+    openDialog({ title: 'Test Dialog', content: wrapper, onClose: vi.fn() });
+
+    expect(document.querySelector('.modal').className).toBe('modal');
+  });
+
   it('the returned close() handle removes the dialog without calling onClose again', () => {
     const onClose = vi.fn();
     const { wrapper } = makeContentWithInput();

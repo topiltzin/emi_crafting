@@ -182,6 +182,7 @@
   background-color: var(--color-white);
   box-shadow: var(--shadow-sm);
   transition: box-shadow var(--transition-base), transform var(--transition-base);
+  cursor: pointer;
 }
 
 .photo-card:hover {
@@ -394,6 +395,55 @@
 .confirm-dialog-message {
   color: var(--color-text);
   line-height: 1.5;
+}
+
+/* Full-resolution photo viewer */
+
+.modal.photo-viewer {
+  max-width: 95vw;
+  width: auto;
+  padding: var(--spacing-lg);
+  max-height: 95vh;
+}
+
+.photo-viewer .modal-close-btn {
+  background-color: rgba(255, 255, 255, 0.9);
+  box-shadow: var(--shadow-sm);
+}
+
+.photo-viewer .modal-close-btn:hover {
+  background-color: var(--color-white);
+}
+
+.photo-viewer-content {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.photo-viewer-image {
+  display: block;
+  max-width: 100%;
+  max-height: calc(95vh - var(--spacing-xl) * 4);
+  object-fit: contain;
+  border-radius: var(--border-radius);
+}
+
+.photo-viewer-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 300px;
+}
+
+.photo-viewer-error {
+  background-color: #fee;
+  border: 1px solid #fcc;
+  color: #c33;
+  padding: var(--spacing-md);
+  border-radius: var(--border-radius);
+  font-size: var(--font-size-base);
+  text-align: center;
 }
 
 /* Sign-in screen */

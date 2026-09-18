@@ -4,6 +4,8 @@ export function createPhotoCard(photo, options = {}) {
   const card = document.createElement('div');
   card.className = 'photo-card';
   card.setAttribute('data-photo-id', photo.id);
+  card.setAttribute('tabindex', '0');
+  card.setAttribute('aria-label', `View full-resolution photo: ${photo.filename || 'craft photo'}`);
 
   const thumbnailUrl = getThumbnailUrl(photo);
 

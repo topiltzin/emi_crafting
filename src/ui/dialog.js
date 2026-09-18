@@ -1,12 +1,12 @@
 const FOCUSABLE_SELECTOR =
   'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])';
 
-export function openDialog({ title, content, onClose } = {}) {
+export function openDialog({ title, content, onClose, className } = {}) {
   const backdrop = document.createElement('div');
   backdrop.className = 'modal-backdrop';
 
   const modal = document.createElement('div');
-  modal.className = 'modal';
+  modal.className = className ? `modal ${className}` : 'modal';
   modal.setAttribute('role', 'dialog');
   modal.setAttribute('aria-modal', 'true');
   if (title) modal.setAttribute('aria-label', title);

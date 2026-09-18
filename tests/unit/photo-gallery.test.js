@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest';
-import { groupPhotosByMonth, renderPhotoGallery } from '../../src/ui/photo-gallery.js';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { groupPhotosByMonth, renderPhotoGallery, attachPhotoGalleryEvents } from '../../src/ui/photo-gallery.js';
+import { createPhotoCard } from '../../src/ui/photo-card.js';
 
 describe('groupPhotosByMonth', () => {
   it('groups photos into correctly labeled month/year buckets', () => {
@@ -56,5 +57,69 @@ describe('renderPhotoGallery', () => {
     const sections = gallery.querySelectorAll('.date-section');
     expect(sections).toHaveLength(2);
     expect(gallery.querySelectorAll('.photo-card')).toHaveLength(2);
+  });
+});
+
+describe('createPhotoCard — keyboard reachability', () => {
+  it('the card element is focusable and carries a descriptive aria-label', () => {
+    const card = createPhotoCard({ id: 'photo-1', filename: 'craft.jpg' });
+    expect(card.getAttribute('tabindex')).toBe('0');
+    expect(card.getAttribute('aria-label')).toBe('View full-resolution photo: craft.jpg');
+  });
+});
+
+describe('attachPhotoGalleryEvents — opening the full-resolution viewer', () => {
+  let gallery;
+  let onToggleFavorite;
+  let onDeletePhoto;
+  let onOpenPhoto;
+
+  beforeEach(() => {
+    document.body.innerHTML = '<div id="app"></div>';
+    gallery = document.createElement('div');
+    gallery.appendChild(createPhotoCard({ id: 'photo-1', filename: 'craft.jpg', is_favorite: false }));
+    document.getElementById('app').appendChild(gallery);
+
+    onToggleFavorite = vi.fn();
+    onDeletePhoto = vi.fn().mockResolvedValue();
+    onOpenPhoto = vi.fn();
+    attachPhotoGalleryEvents(gallery, onToggleFavorite, onDeletePhoto, onOpenPhoto);
+  });
+
+  it('invokes onOpenPhoto when a click lands on the card outside any [data-action] control', () => {
+    gallery.querySelector('.photo-card-media').click();
+    expect(onOpenPhoto).toHaveBeenCalledWith('photo-1');
+  });
+
+  it('does not invoke onOpenPhoto when the click lands on the favorite control', () => {
+    gallery.querySelector('[data-action="toggle-favorite"]').click();
+    expect(onOpenPhoto).not.toHaveBeenCalled();
+  });
+
+  it('does not invoke onOpenPhoto when the click lands on the delete control', async () => {
+    gallery.querySelector('[data-action="delete-photo"]').click();
+    await Promise.resolve();
+    expect(onOpenPhoto).not.toHaveBeenCalled();
+  });
+
+  it('invokes onOpenPhoto on Enter/Space when the keypress originates on the card itself', () => {
+    const card = gallery.querySelector('.photo-card');
+    card.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    expect(onOpenPhoto).toHaveBeenCalledWith('photo-1');
+
+    onOpenPhoto.mockClear();
+    card.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+    expect(onOpenPhoto).toHaveBeenCalledWith('photo-1');
+  });
+
+  it('does not invoke onOpenPhoto on Enter/Space bubbled from a nested button', () => {
+    const favoriteBtn = gallery.querySelector('[data-action="toggle-favorite"]');
+    favoriteBtn.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    expect(onOpenPhoto).not.toHaveBeenCalled();
+  });
+
+  it('does nothing (no throw) when no onOpenPhoto callback was provided', () => {
+    attachPhotoGalleryEvents(gallery, onToggleFavorite, onDeletePhoto);
+    expect(() => gallery.querySelector('.photo-card-media').click()).not.toThrow();
   });
 });

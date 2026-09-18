@@ -286,6 +286,17 @@ export async function getPhoto(photoId) {
   return data ? toPhoto(data) : null;
 }
 
+// Resolves a photo's original, full-resolution image on demand — deliberately not called from
+// toPhoto() (which every list/get call already funnels through), since eagerly resolving a
+// second signed URL per photo would double Storage calls on every gallery/album load.
+export async function getPhotoOriginalUrl(storagePath) {
+  try {
+    return await resolvePhotoUrl(storagePath);
+  } catch (error) {
+    throwClassified(error, 'Failed to load photo');
+  }
+}
+
 export async function getPhotos(albumId, offset = 0, limit = 50) {
   const { data, error } = await getSupabaseClient()
     .from('photos')
