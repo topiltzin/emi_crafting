@@ -85,7 +85,7 @@ describe('Create Album uses an in-app dialog, not window.prompt', () => {
   });
 });
 
-describe('Create Album when today already has one', () => {
+describe('Create Album never collides, even when today already has one', () => {
   const today = new Date().toISOString().slice(0, 10);
 
   beforeEach(async () => {
@@ -97,7 +97,7 @@ describe('Create Album when today already has one', () => {
     getApp().querySelector('[data-section="home"]').click();
   }
 
-  async function createTodayAlbum(name) {
+  async function createAlbumByName(name) {
     goHome();
     getApp().querySelector('[data-action="create-album"]').click();
     await waitFor(() => getApp().querySelector('.create-album-input'));
@@ -106,53 +106,43 @@ describe('Create Album when today already has one', () => {
     await waitFor(async () => (await getAlbums()).some((a) => a.title === name));
   }
 
-  it('never silently no-ops: shows a dialog naming the existing album instead of discarding the new name', async () => {
-    await createTodayAlbum('Morning Crafts');
+  it('creates a second, distinctly-named album with no dialog or date to think about — the user just types a name', async () => {
+    // The user never sees or picks a date, and there is no "already exists" dialog for this
+    // flow at all — only a real title collision (same name, not just same date) is even possible.
+    await createAlbumByName('test');
     const countAfterFirst = (await getAlbums()).length;
 
-    goHome();
-    getApp().querySelector('[data-action="create-album"]').click();
-    await waitFor(() => getApp().querySelector('.create-album-input'));
-    getApp().querySelector('.create-album-input').value = 'Afternoon Crafts';
-    getApp().querySelector('[data-action="create-album-confirm"]').click();
-
-    await waitFor(() => getApp().querySelector('.modal-title')?.textContent === 'Album already exists');
-    expect(getApp().querySelector('.modal-content').textContent).toContain('Morning Crafts');
-
-    // Cancelling leaves the existing album untouched and creates no duplicate.
-    getApp().querySelector('[data-action="confirm-dialog-cancel"]').click();
-    await new Promise((r) => setTimeout(r, 0));
+    await createAlbumByName('FOLDER');
 
     const albums = await getAlbums();
-    expect(albums).toHaveLength(countAfterFirst);
-    expect(albums.some((a) => a.album_date === today && a.title === 'Morning Crafts')).toBe(true);
-    expect(albums.some((a) => a.title === 'Afternoon Crafts')).toBe(false);
+    expect(albums).toHaveLength(countAfterFirst + 1);
+    expect(albums.some((a) => a.title === 'test')).toBe(true);
+    expect(albums.some((a) => a.title === 'FOLDER')).toBe(true);
+    // "test" is completely untouched by creating "FOLDER" afterward.
+    expect(albums.find((a) => a.title === 'test').album_date).toBe(today);
   });
 
-  it('lets the user rename the existing album instead of losing the new name entirely', async () => {
-    await createTodayAlbum('Morning Crafts');
-    const countAfterFirst = (await getAlbums()).length;
-    const existing = (await getAlbums()).find((a) => a.album_date === today);
+  it('silently claims the next free date when today is already taken, invisibly to the user', async () => {
+    await createAlbumByName('test'); // takes today's date
 
-    goHome();
-    getApp().querySelector('[data-action="create-album"]').click();
-    await waitFor(() => getApp().querySelector('.create-album-input'));
-    getApp().querySelector('.create-album-input').value = 'Afternoon Crafts';
-    getApp().querySelector('[data-action="create-album-confirm"]').click();
-    await waitFor(() => getApp().querySelector('[data-action="confirm-dialog-confirm"]'));
+    await createAlbumByName('FOLDER');
 
-    getApp().querySelector('[data-action="confirm-dialog-confirm"]').click();
-    await waitFor(() => getApp().querySelector('.modal-title')?.textContent === 'Rename Album');
-    expect(getApp().querySelector('.create-album-input').value).toBe('Morning Crafts');
+    const folder = (await getAlbums()).find((a) => a.title === 'FOLDER');
+    expect(folder.album_date).not.toBe(today);
+  });
 
-    getApp().querySelector('.create-album-input').value = 'Renamed Today';
-    getApp().querySelector('[data-action="create-album-confirm"]').click();
-    await waitFor(async () => (await getAlbums()).some((a) => a.title === 'Renamed Today'));
+  it('creating several named albums on the same day never triggers a collision dialog', async () => {
+    await createAlbumByName('One');
+    await createAlbumByName('Two');
+    await createAlbumByName('Three');
 
+    // No "Album already exists" dialog ever appears for any of these.
+    expect(getApp().querySelector('.modal-backdrop')).toBeNull();
     const albums = await getAlbums();
-    expect(albums).toHaveLength(countAfterFirst);
-    const renamed = albums.find((a) => a.id === existing.id);
-    expect(renamed.title).toBe('Renamed Today');
-    expect(albums.some((a) => a.title === 'Morning Crafts')).toBe(false);
+    expect(['One', 'Two', 'Three'].every((name) => albums.some((a) => a.title === name))).toBe(true);
+    // Every album still has its own distinct date (the uniqueness constraint that made the
+    // collision possible in the first place is satisfied silently, not surfaced to the user).
+    const dates = albums.filter((a) => ['One', 'Two', 'Three'].includes(a.title)).map((a) => a.album_date);
+    expect(new Set(dates).size).toBe(3);
   });
 });

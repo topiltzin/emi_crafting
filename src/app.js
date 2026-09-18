@@ -9,13 +9,8 @@ import {
   toggleFavorite
 } from './modules/db.js';
 import { uploadPhotos } from './modules/photo.js';
-import { createAlbumIfNeeded } from './modules/album.js';
-import {
-  renderAlbumGrid,
-  attachAlbumGridEvents,
-  attachAlbumDragDrop,
-  formatAlbumDate
-} from './ui/album-grid.js';
+import { createNamedAlbum } from './modules/album.js';
+import { renderAlbumGrid, attachAlbumGridEvents, attachAlbumDragDrop } from './ui/album-grid.js';
 import { renderAlbumView, attachAlbumViewEvents } from './ui/album-view.js';
 import { renderNav, attachNavEvents } from './ui/nav.js';
 import { renderHero, attachHeroEvents } from './ui/hero.js';
@@ -24,7 +19,6 @@ import { openPhotoViewer } from './ui/photo-viewer.js';
 import { renderUploadZone, attachUploadZoneEvents } from './ui/upload-zone.js';
 import { openDialog } from './ui/dialog.js';
 import { showCreateAlbumDialog, showRenameAlbumDialog } from './ui/create-album-dialog.js';
-import { showConfirmDialog } from './ui/confirm-dialog.js';
 import { initTheme, setThemePreference } from './modules/theme.js';
 import { getPhoto, getPhotos, getAlbum } from './modules/db.js';
 import { getSession, signInOwner } from './modules/supabase-client.js';
@@ -267,43 +261,13 @@ async function handleCreateAlbum() {
   const title = await showCreateAlbumDialog();
   if (title === null) return;
 
-  const today = new Date().toISOString().slice(0, 10);
   try {
-    const { album, created } = await createAlbumIfNeeded(today, title || null);
-    if (created) {
-      await navigateTo('albums');
-      return;
-    }
-
-    // FR-002: an album for today already exists — createAlbumIfNeeded returned it as-is rather
-    // than silently discarding the name the user just typed. Tell them and offer a way out.
-    await handleAlbumAlreadyExistsForToday(album);
+    // Always succeeds — no date to pick, no collision to resolve. See createNamedAlbum().
+    await createNamedAlbum(title);
+    await navigateTo('albums');
   } catch (error) {
     console.error('Create album failed:', error);
     showError(describeError(error, 'Failed to create album'));
-  }
-}
-
-async function handleAlbumAlreadyExistsForToday(existingAlbum) {
-  const existingName = existingAlbum.title || formatAlbumDate(existingAlbum.album_date);
-  const wantsRename = await showConfirmDialog({
-    title: 'Album already exists',
-    message: `You already have an album for today ("${existingName}"). Rename it, or keep it as is?`,
-    confirmLabel: 'Rename it',
-    cancelLabel: 'Keep as is',
-    danger: false
-  });
-  if (!wantsRename) return;
-
-  const newTitle = await showRenameAlbumDialog(existingAlbum.title || '');
-  if (newTitle === null) return;
-
-  try {
-    await updateAlbum(existingAlbum.id, { title: newTitle });
-    await navigateTo('albums');
-  } catch (error) {
-    console.error('Rename album failed:', error);
-    showError(describeError(error, 'Failed to rename album'));
   }
 }
 
@@ -438,7 +402,10 @@ async function handleToggleFavorite(photoId) {
 
 async function handleDeleteAlbum(albumId) {
   try {
-    await deleteAlbum(albumId, false);
+    // Permanent deletion, matching what the confirmation dialog already promises ("can't be
+    // undone") — the app has no trash/restore screen, so a soft delete was invisible, unrecoverable
+    // clutter that still consumed storage forever.
+    await deleteAlbum(albumId, true);
     await navigateTo('albums');
   } catch (error) {
     console.error('Delete album failed:', error);

@@ -264,6 +264,93 @@ describe('Database Module (Supabase-backed)', () => {
       expect(await getAlbum(album.id)).toBeNull();
       expect(await getPhoto(photo.id)).toBeNull();
     });
+
+    describe('hard delete', () => {
+      async function seedAlbumWithPhoto() {
+        const album = await createAlbum('2026-09-14');
+        const photo = await createPhoto(album.id, {
+          filename: 'one.jpg',
+          file_size: 100,
+          mime_type: 'image/jpeg',
+          photo_data_base64: btoa('data'),
+          thumbnail_base64: btoa('thumb')
+        });
+        return { album, photo };
+      }
+
+      function storageKeys(photo) {
+        return [`photos/owner-1/${photo.id}/original`, `photos/owner-1/${photo.id}/thumb`];
+      }
+
+      it('permanently removes the album, its photos, and their Storage objects', async () => {
+        const { album, photo } = await seedAlbumWithPhoto();
+
+        await deleteAlbum(album.id, true);
+
+        expect(await getAlbum(album.id)).toBeNull();
+        expect(await getPhoto(photo.id)).toBeNull();
+        for (const key of storageKeys(photo)) {
+          expect(fakeClient._storageObjects.has(key)).toBe(false);
+        }
+      });
+
+      it('leaves everything intact when Storage removal fails, then succeeds on retry', async () => {
+        const { album, photo } = await seedAlbumWithPhoto();
+        fakeClient._failNextStorageRemoves(1);
+
+        await expect(deleteAlbum(album.id, true)).rejects.toMatchObject({ code: 'network' });
+
+        // Fully intact — nothing was removed by the failed attempt.
+        expect(await getAlbum(album.id)).not.toBeNull();
+        expect(await getPhoto(photo.id)).not.toBeNull();
+        for (const key of storageKeys(photo)) {
+          expect(fakeClient._storageObjects.has(key)).toBe(true);
+        }
+
+        await deleteAlbum(album.id, true);
+
+        expect(await getAlbum(album.id)).toBeNull();
+        expect(await getPhoto(photo.id)).toBeNull();
+        for (const key of storageKeys(photo)) {
+          expect(fakeClient._storageObjects.has(key)).toBe(false);
+        }
+      });
+
+      it('leaves rows intact (Storage already gone) when the photo-row delete fails, then succeeds on retry', async () => {
+        const { album, photo } = await seedAlbumWithPhoto();
+        fakeClient._failNextTableDeletes('photos', 1);
+
+        await expect(deleteAlbum(album.id, true)).rejects.toMatchObject({ code: 'network' });
+
+        // Disclosed transient window (research.md §2): Storage already removed, rows still present.
+        expect(await getAlbum(album.id)).not.toBeNull();
+        for (const key of storageKeys(photo)) {
+          expect(fakeClient._storageObjects.has(key)).toBe(false);
+        }
+
+        // Retry re-removes the (already-gone) Storage objects with no error, then finishes.
+        await deleteAlbum(album.id, true);
+
+        expect(await getAlbum(album.id)).toBeNull();
+        expect(await getPhoto(photo.id)).toBeNull();
+      });
+
+      it('leaves an empty album row when the album-row delete fails, then succeeds on retry', async () => {
+        const { album, photo } = await seedAlbumWithPhoto();
+        fakeClient._failNextTableDeletes('albums', 1);
+
+        await expect(deleteAlbum(album.id, true)).rejects.toMatchObject({ code: 'network' });
+
+        // Disclosed transient window (research.md §2): photo rows + Storage already gone, album row remains.
+        expect(await getAlbum(album.id)).not.toBeNull();
+        expect(await getPhoto(photo.id)).toBeNull();
+
+        // Retry deletes zero matching photo rows (safe no-op) and finishes the album row.
+        await deleteAlbum(album.id, true);
+
+        expect(await getAlbum(album.id)).toBeNull();
+      });
+    });
   });
 
   describe('Album Cover Thumbnail', () => {

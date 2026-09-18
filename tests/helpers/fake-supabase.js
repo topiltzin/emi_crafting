@@ -64,6 +64,8 @@ export function createFakeSupabaseClient({ ownerId = 'owner-1', networkDown = fa
   const storageObjects = new Set();
   let session = { user: { id: ownerId, email: 'owner@example.com' } };
   let uploadFailureCountdown = 0;
+  let removeFailureCountdown = 0;
+  const deleteFailureCountdowns = {};
 
   function checkNetwork() {
     if (networkDown) {
@@ -166,6 +168,10 @@ export function createFakeSupabaseClient({ ownerId = 'owner-1', networkDown = fa
       }
 
       if (mode === 'delete') {
+        if (deleteFailureCountdowns[table] > 0) {
+          deleteFailureCountdowns[table] -= 1;
+          return { data: null, error: new TypeError('Failed to fetch') };
+        }
         for (const row of matched) {
           const idx = rows.indexOf(row);
           if (idx !== -1) rows.splice(idx, 1);
@@ -213,6 +219,15 @@ export function createFakeSupabaseClient({ ownerId = 'owner-1', networkDown = fa
           return { data: { path }, error: null };
         },
         async remove(paths) {
+          try {
+            checkNetwork();
+          } catch (error) {
+            return { data: null, error };
+          }
+          if (removeFailureCountdown > 0) {
+            removeFailureCountdown -= 1;
+            return { data: null, error: new TypeError('Failed to fetch') };
+          }
           for (const path of paths) storageObjects.delete(`${bucket}/${path}`);
           return { data: paths, error: null };
         },
@@ -260,6 +275,12 @@ export function createFakeSupabaseClient({ ownerId = 'owner-1', networkDown = fa
     },
     _failNextUploads(count) {
       uploadFailureCountdown = count;
+    },
+    _failNextStorageRemoves(count) {
+      removeFailureCountdown = count;
+    },
+    _failNextTableDeletes(table, count) {
+      deleteFailureCountdowns[table] = count;
     }
   };
 }

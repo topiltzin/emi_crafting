@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { initApp } from '../../src/app.js';
 import { getAlbums, getAllPhotos, getPhotos } from '../../src/modules/db.js';
+import { getCurrentFakeClient } from '../helpers/fake-supabase-mock.js';
 
 function getApp() {
   return document.getElementById('app');
@@ -240,11 +241,15 @@ describe('Album detail view and deletion', () => {
     expect(getApp().querySelectorAll('.photo-card')).toHaveLength(1);
   });
 
-  it('deletes an album after confirmation', async () => {
+  it('deletes an album after confirmation — permanently, including its photos and Storage objects', async () => {
     const { uploadPhotos } = await import('../../src/modules/photo.js');
     await uploadPhotos([
       new File(['x'], 'craft.jpg', { type: 'image/jpeg', lastModified: new Date('2026-09-14').getTime() })
     ]);
+    const [photo] = await getAllPhotos();
+    const storageKeys = [`photos/owner-1/${photo.id}/original`, `photos/owner-1/${photo.id}/thumb`];
+    const fakeClient = getCurrentFakeClient();
+    expect(storageKeys.some((key) => fakeClient._storageObjects.has(key))).toBe(true);
 
     clickNav('Albums');
     await waitFor(() => getApp().querySelector('.album-grid'));
@@ -255,7 +260,13 @@ describe('Album detail view and deletion', () => {
     getApp().querySelector('[data-action="confirm-dialog-confirm"]').click();
     await waitFor(async () => (await getAlbums()).length === 0);
 
+    // Not just hidden from the Albums list — actually gone: the album, its photo, and the
+    // photo's Storage objects (FR-001, FR-002; SC-001, SC-002), not merely soft-deleted.
     expect(await getAlbums()).toHaveLength(0);
+    expect(await getAllPhotos()).toHaveLength(0);
+    for (const key of storageKeys) {
+      expect(fakeClient._storageObjects.has(key)).toBe(false);
+    }
   });
 
   it('does not delete the album when the confirmation dialog is cancelled', async () => {
@@ -263,6 +274,9 @@ describe('Album detail view and deletion', () => {
     await uploadPhotos([
       new File(['x'], 'craft.jpg', { type: 'image/jpeg', lastModified: new Date('2026-09-14').getTime() })
     ]);
+    const [photo] = await getAllPhotos();
+    const storageKeys = [`photos/owner-1/${photo.id}/original`, `photos/owner-1/${photo.id}/thumb`];
+    const fakeClient = getCurrentFakeClient();
 
     clickNav('Albums');
     await waitFor(() => getApp().querySelector('.album-grid'));
@@ -272,7 +286,13 @@ describe('Album detail view and deletion', () => {
     getApp().querySelector('[data-action="confirm-dialog-cancel"]').click();
     await new Promise((r) => setTimeout(r, 0));
 
+    // Cancelling touches nothing — the album, its photo, and its Storage objects are all
+    // still exactly as they were (FR-003; SC-003).
     expect(await getAlbums()).toHaveLength(1);
+    expect(await getAllPhotos()).toHaveLength(1);
+    for (const key of storageKeys) {
+      expect(fakeClient._storageObjects.has(key)).toBe(true);
+    }
   });
 });
 

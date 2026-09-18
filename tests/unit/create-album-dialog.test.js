@@ -10,6 +10,11 @@ function getInput() {
 }
 
 describe('showCreateAlbumDialog', () => {
+  it('has no date field — just a name', () => {
+    showCreateAlbumDialog();
+    expect(document.querySelector('.create-album-date-input')).toBeNull();
+  });
+
   it('resolves the trimmed name when a valid name is submitted', async () => {
     const promise = showCreateAlbumDialog();
 
