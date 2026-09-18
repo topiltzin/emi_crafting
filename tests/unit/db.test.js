@@ -1,20 +1,26 @@
 import { describe, it, expect, beforeEach } from 'vitest';
+import { getCurrentFakeClient } from '../helpers/fake-supabase-mock.js';
 import {
   initDB,
   createAlbum,
   getAlbum,
   getAlbums,
+  deleteAlbum,
+  updateAlbum,
+  updateAlbumOrder,
   createPhoto,
   getPhoto,
   getPhotos,
   getAllPhotos,
   deletePhoto,
-  updateAlbumOrder,
   toggleFavorite
 } from '../../src/modules/db.js';
 
-describe('Database Module', () => {
+describe('Database Module (Supabase-backed)', () => {
+  let fakeClient;
+
   beforeEach(async () => {
+    fakeClient = getCurrentFakeClient();
     await initDB();
   });
 
@@ -27,11 +33,28 @@ describe('Database Module', () => {
       expect(album.photo_count).toBe(0);
     });
 
+    it('rejects an album_date that is not ISO 8601 (YYYY-MM-DD)', async () => {
+      await expect(createAlbum('09/14/2026')).rejects.toThrow(
+        'album_date must be ISO 8601 format (YYYY-MM-DD)'
+      );
+    });
+
+    it('rejects a title longer than 255 characters', async () => {
+      await expect(createAlbum('2026-09-14', 'x'.repeat(256))).rejects.toThrow(
+        'title must be max 255 characters'
+      );
+    });
+
     it('should retrieve an album by id', async () => {
       const created = await createAlbum('2026-09-15', 'Retrieve Test');
-      const retrieved = getAlbum(created.id);
+      const retrieved = await getAlbum(created.id);
       expect(retrieved).toBeDefined();
       expect(retrieved.album_date).toBe('2026-09-15');
+    });
+
+    it('returns null for an album that does not exist', async () => {
+      const retrieved = await getAlbum('00000000-0000-0000-0000-000000000000');
+      expect(retrieved).toBeNull();
     });
 
     it('should get all albums in correct order', async () => {
@@ -39,10 +62,44 @@ describe('Database Module', () => {
       await createAlbum('2026-09-15');
       await createAlbum('2026-09-12');
 
-      const albums = getAlbums(false); // chronological
-      expect(albums.length).toBeGreaterThan(0);
+      const albums = await getAlbums(false); // chronological
+      expect(albums.length).toBe(3);
       // Most recent should be first
       expect(albums[0].album_date).toBe('2026-09-15');
+    });
+  });
+
+  describe('Album rename', () => {
+    it('updates the title and returns the updated album', async () => {
+      const album = await createAlbum('2026-09-14', 'Original Name');
+      const updated = await updateAlbum(album.id, { title: 'New Name' });
+      expect(updated.title).toBe('New Name');
+      expect((await getAlbum(album.id)).title).toBe('New Name');
+    });
+
+    it('trims the submitted title', async () => {
+      const album = await createAlbum('2026-09-14', 'Original Name');
+      const updated = await updateAlbum(album.id, { title: '  Trimmed  ' });
+      expect(updated.title).toBe('Trimmed');
+    });
+
+    it('rejects a blank title and leaves the previous title unchanged', async () => {
+      const album = await createAlbum('2026-09-14', 'Keep Me');
+      await expect(updateAlbum(album.id, { title: '' })).rejects.toThrow(
+        'title is required and must not be blank'
+      );
+      await expect(updateAlbum(album.id, { title: '   ' })).rejects.toThrow(
+        'title is required and must not be blank'
+      );
+      expect((await getAlbum(album.id)).title).toBe('Keep Me');
+    });
+
+    it('rejects a title longer than 255 characters', async () => {
+      const album = await createAlbum('2026-09-14', 'Keep Me');
+      await expect(updateAlbum(album.id, { title: 'x'.repeat(256) })).rejects.toThrow(
+        'title must be max 255 characters'
+      );
+      expect((await getAlbum(album.id)).title).toBe('Keep Me');
     });
   });
 
@@ -55,8 +112,8 @@ describe('Database Module', () => {
         file_size: 1024,
         mime_type: 'image/jpeg',
         photo_date: '2026-09-14',
-        photo_data_base64: 'test_base64_data',
-        thumbnail_base64: 'thumb_base64_data',
+        photo_data_base64: btoa('test_base64_data'),
+        thumbnail_base64: btoa('thumb_base64_data'),
         exif_json: { DateTime: '2026:09:14 10:30:00' }
       };
 
@@ -64,6 +121,45 @@ describe('Database Module', () => {
       expect(photo).toBeDefined();
       expect(photo.album_id).toBe(album.id);
       expect(photo.filename).toBe('test.jpg');
+      // Storage upload must happen before the row exists (FR-008) — the resolved thumbnail
+      // URL is only present because the fake Storage bucket actually has the object.
+      expect(photo.thumbnail_url).toBe('https://fake.local/storage/photos/owner-1/' + photo.id + '/thumb');
+    });
+
+    it('rejects a filename longer than 255 characters', async () => {
+      const album = await createAlbum('2026-09-14');
+      await expect(
+        createPhoto(album.id, {
+          filename: 'x'.repeat(256) + '.jpg',
+          file_size: 100,
+          mime_type: 'image/jpeg',
+          photo_data_base64: btoa('data')
+        })
+      ).rejects.toThrow('filename is required and must be max 255 characters');
+    });
+
+    it('rejects a file_size of 0', async () => {
+      const album = await createAlbum('2026-09-14');
+      await expect(
+        createPhoto(album.id, {
+          filename: 'test.jpg',
+          file_size: 0,
+          mime_type: 'image/jpeg',
+          photo_data_base64: btoa('data')
+        })
+      ).rejects.toThrow('file_size must be > 0');
+    });
+
+    it('rejects an unsupported mime type', async () => {
+      const album = await createAlbum('2026-09-14');
+      await expect(
+        createPhoto(album.id, {
+          filename: 'test.gif',
+          file_size: 100,
+          mime_type: 'image/gif',
+          photo_data_base64: btoa('data')
+        })
+      ).rejects.toThrow('Unsupported file type: image/gif');
     });
 
     it('should retrieve a photo by id', async () => {
@@ -74,12 +170,12 @@ describe('Database Module', () => {
         file_size: 2048,
         mime_type: 'image/jpeg',
         photo_date: '2026-09-14',
-        photo_data_base64: 'data',
-        thumbnail_base64: 'thumb'
+        photo_data_base64: btoa('data'),
+        thumbnail_base64: btoa('thumb')
       };
 
       const created = await createPhoto(album.id, photoData);
-      const retrieved = getPhoto(created.id);
+      const retrieved = await getPhoto(created.id);
       expect(retrieved).toBeDefined();
       expect(retrieved.filename).toBe('retrieve.jpg');
     });
@@ -93,12 +189,12 @@ describe('Database Module', () => {
           file_size: 1024,
           mime_type: 'image/jpeg',
           photo_date: '2026-09-14',
-          photo_data_base64: 'data',
-          thumbnail_base64: 'thumb'
+          photo_data_base64: btoa('data'),
+          thumbnail_base64: btoa('thumb')
         });
       }
 
-      const photos = getPhotos(album.id);
+      const photos = await getPhotos(album.id);
       expect(photos.length).toBe(3);
     });
 
@@ -110,10 +206,10 @@ describe('Database Module', () => {
         filename: 'test.jpg',
         file_size: 1024,
         mime_type: 'image/jpeg',
-        photo_data_base64: 'data'
+        photo_data_base64: btoa('data')
       });
 
-      const updated = getAlbum(album.id);
+      const updated = await getAlbum(album.id);
       expect(updated.photo_count).toBe(1);
     });
 
@@ -123,16 +219,49 @@ describe('Database Module', () => {
         filename: 'delete.jpg',
         file_size: 1024,
         mime_type: 'image/jpeg',
-        photo_data_base64: 'data'
+        photo_data_base64: btoa('data')
       });
 
       await deletePhoto(photo.id, false);
 
-      const deleted = getPhoto(photo.id);
+      const deleted = await getPhoto(photo.id);
       expect(deleted).toBeNull();
 
-      const updatedAlbum = getAlbum(album.id);
+      const updatedAlbum = await getAlbum(album.id);
       expect(updatedAlbum.photo_count).toBe(0);
+    });
+
+    it('should hard delete a photo and remove its Storage objects', async () => {
+      const album = await createAlbum('2026-09-14');
+      const photo = await createPhoto(album.id, {
+        filename: 'hard-delete.jpg',
+        file_size: 1024,
+        mime_type: 'image/jpeg',
+        photo_data_base64: btoa('data'),
+        thumbnail_base64: btoa('thumb')
+      });
+
+      await deletePhoto(photo.id, true);
+
+      expect(fakeClient._storageObjects.has(`photos/owner-1/${photo.id}/original`)).toBe(false);
+      expect(fakeClient._storageObjects.has(`photos/owner-1/${photo.id}/thumb`)).toBe(false);
+    });
+  });
+
+  describe('Album deletion', () => {
+    it('soft-deletes an album and its photos together', async () => {
+      const album = await createAlbum('2026-09-14');
+      const photo = await createPhoto(album.id, {
+        filename: 'one.jpg',
+        file_size: 100,
+        mime_type: 'image/jpeg',
+        photo_data_base64: btoa('data')
+      });
+
+      await deleteAlbum(album.id, false);
+
+      expect(await getAlbum(album.id)).toBeNull();
+      expect(await getPhoto(photo.id)).toBeNull();
     });
   });
 
@@ -144,27 +273,29 @@ describe('Database Module', () => {
         filename: 'first.jpg',
         file_size: 100,
         mime_type: 'image/jpeg',
-        photo_data_base64: 'data',
-        thumbnail_base64: 'thumb-first'
+        photo_data_base64: btoa('data'),
+        thumbnail_base64: btoa('thumb-first')
       });
-      await createPhoto(album.id, {
+      const second = await createPhoto(album.id, {
         filename: 'second.jpg',
         file_size: 100,
         mime_type: 'image/jpeg',
-        photo_data_base64: 'data',
-        thumbnail_base64: 'thumb-second'
+        photo_data_base64: btoa('data'),
+        thumbnail_base64: btoa('thumb-second')
       });
 
-      const albums = getAlbums();
+      const albums = await getAlbums();
       const found = albums.find((a) => a.id === album.id);
-      expect(found.cover_thumbnail_base64).toBe('thumb-second');
+      expect(found.cover_thumbnail_url).toBe(
+        `https://fake.local/storage/photos/owner-1/${second.id}/thumb`
+      );
     });
 
     it('returns null cover for an album with zero photos', async () => {
       const album = await createAlbum('2026-09-16');
-      const albums = getAlbums();
+      const albums = await getAlbums();
       const found = albums.find((a) => a.id === album.id);
-      expect(found.cover_thumbnail_base64).toBeNull();
+      expect(found.cover_thumbnail_url).toBeNull();
     });
   });
 
@@ -175,22 +306,24 @@ describe('Database Module', () => {
         filename: 'fav.jpg',
         file_size: 100,
         mime_type: 'image/jpeg',
-        photo_data_base64: 'data'
+        photo_data_base64: btoa('data')
       });
 
-      expect(photo.is_favorite).toBe(0);
+      expect(photo.is_favorite).toBe(false);
 
       const favorited = await toggleFavorite(photo.id);
-      expect(favorited.is_favorite).toBe(1);
-      expect(getPhoto(photo.id).is_favorite).toBe(1);
+      expect(favorited.is_favorite).toBe(true);
+      expect((await getPhoto(photo.id)).is_favorite).toBe(true);
 
       const unfavorited = await toggleFavorite(photo.id);
-      expect(unfavorited.is_favorite).toBe(0);
-      expect(getPhoto(photo.id).is_favorite).toBe(0);
+      expect(unfavorited.is_favorite).toBe(false);
+      expect((await getPhoto(photo.id)).is_favorite).toBe(false);
     });
 
     it('throws for a non-existent photo id', async () => {
-      await expect(toggleFavorite(999999)).rejects.toThrow('Photo not found');
+      await expect(toggleFavorite('00000000-0000-0000-0000-000000000000')).rejects.toThrow(
+        'Photo not found'
+      );
     });
 
     it('getAllPhotos with favoritesOnly returns only favorited, non-deleted photos', async () => {
@@ -199,18 +332,18 @@ describe('Database Module', () => {
         filename: 'one.jpg',
         file_size: 100,
         mime_type: 'image/jpeg',
-        photo_data_base64: 'data'
+        photo_data_base64: btoa('data')
       });
       await createPhoto(album.id, {
         filename: 'two.jpg',
         file_size: 100,
         mime_type: 'image/jpeg',
-        photo_data_base64: 'data'
+        photo_data_base64: btoa('data')
       });
 
       await toggleFavorite(photo1.id);
 
-      const favorites = getAllPhotos({ favoritesOnly: true });
+      const favorites = await getAllPhotos({ favoritesOnly: true });
       expect(favorites).toHaveLength(1);
       expect(favorites[0].id).toBe(photo1.id);
     });
@@ -225,16 +358,22 @@ describe('Database Module', () => {
       // Reorder: move album1 to position 1
       await updateAlbumOrder(album1.id, 1);
 
-      const ordered = getAlbums(true); // custom order
+      const ordered = await getAlbums(true); // custom order
       expect(ordered[1].id).toBe(album1.id);
     });
 
     it('should reject invalid positions', async () => {
       const album = await createAlbum('2026-09-14');
 
-      expect(async () => {
-        await updateAlbumOrder(album.id, 999);
-      }).rejects.toThrow();
+      await expect(updateAlbumOrder(album.id, 999)).rejects.toThrow();
+    });
+  });
+
+  describe('Error classification', () => {
+    it('rejects with code "network" when Supabase is unreachable', async () => {
+      fakeClient._setNetworkDown(true);
+
+      await expect(createAlbum('2026-09-14')).rejects.toMatchObject({ code: 'network' });
     });
   });
 });

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { showCreateAlbumDialog } from '../../src/ui/create-album-dialog.js';
+import { showCreateAlbumDialog, showRenameAlbumDialog } from '../../src/ui/create-album-dialog.js';
 
 beforeEach(() => {
   document.body.innerHTML = '<div id="app"></div>';
@@ -100,5 +100,51 @@ describe('showCreateAlbumDialog', () => {
     getInput().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
 
     await expect(promise).resolves.toBe('Fabric Scraps');
+  });
+});
+
+describe('showRenameAlbumDialog', () => {
+  it('pre-fills the input with the current title and labels the dialog/button for renaming', () => {
+    showRenameAlbumDialog('Paper Crafts');
+
+    expect(getInput().value).toBe('Paper Crafts');
+    expect(document.querySelector('.modal-title').textContent).toBe('Rename Album');
+    expect(document.querySelector('[data-action="create-album-confirm"]').textContent).toBe('Save');
+  });
+
+  it('resolves the trimmed new name when submitted', async () => {
+    const promise = showRenameAlbumDialog('Old Name');
+
+    getInput().value = '  New Name  ';
+    document.querySelector('[data-action="create-album-confirm"]').click();
+
+    await expect(promise).resolves.toBe('New Name');
+  });
+
+  it('shows an inline message and does not resolve when the new name is blank', async () => {
+    let resolvedWith = 'not-resolved-yet';
+    const promise = showRenameAlbumDialog('Old Name').then((value) => {
+      resolvedWith = value;
+      return value;
+    });
+
+    getInput().value = '';
+    document.querySelector('[data-action="create-album-confirm"]').click();
+    await Promise.resolve();
+
+    expect(document.querySelector('.create-album-error').hidden).toBe(false);
+    expect(resolvedWith).toBe('not-resolved-yet');
+
+    getInput().value = 'Valid Name';
+    document.querySelector('[data-action="create-album-confirm"]').click();
+    await promise;
+  });
+
+  it('resolves null when Cancel is clicked, leaving the name unchanged', async () => {
+    const promise = showRenameAlbumDialog('Old Name');
+
+    document.querySelector('[data-action="create-album-cancel"]').click();
+
+    await expect(promise).resolves.toBeNull();
   });
 });

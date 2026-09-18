@@ -4,6 +4,23 @@
 
 ---
 
+## ☁️ Supabase Setup (one-time, before first run)
+
+Albums and photos now live in Supabase (Postgres + Storage + Auth), not just the browser — see
+`specs/004-supabase-data-migration/` for the full design. Before running the app:
+
+1. Apply `supabase/schema.sql` to your Supabase project (SQL editor or `supabase db push`).
+2. Create a private Storage bucket named `photos` (its access policies are in that same schema
+   file).
+3. Create exactly one Supabase Auth user — the app is single-owner, with no sign-up flow.
+4. Copy `.env.example` to `.env.local` and fill in `VITE_SUPABASE_URL` and
+   `VITE_SUPABASE_ANON_KEY` from your project's API settings. **Never** put the Supabase secret/
+   service key here — the app doesn't use it.
+
+Full validation steps: `specs/004-supabase-data-migration/quickstart.md`.
+
+---
+
 ## 🚀 Installation
 
 ### Option 1: Development Server (for testing)
@@ -15,7 +32,7 @@ npm install
 # 2. Start development server
 npm run dev
 
-# 3. Open browser to http://localhost:5173
+# 3. Open browser to http://localhost:5173 and sign in with the owner account you created above
 ```
 
 ### Option 2: Production Build (for deployment)

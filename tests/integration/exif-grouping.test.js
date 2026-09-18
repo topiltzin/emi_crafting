@@ -28,7 +28,7 @@ describe('EXIF & Album Grouping Integration', () => {
     await uploadPhotos([file1, file2, file3]);
 
     // Get albums
-    const albums = getAlbums();
+    const albums = await getAlbums();
 
     // Should have created separate albums for different dates
     const groupedByDate = {};
@@ -53,7 +53,7 @@ describe('EXIF & Album Grouping Integration', () => {
     expect(result.uploaded).toHaveLength(1);
 
     const photo = result.uploaded[0];
-    const albums = getAlbums();
+    const albums = await getAlbums();
     const album = albums.find((a) => a.id === photo.album_id);
 
     expect(album).toBeDefined();
@@ -81,7 +81,7 @@ describe('EXIF & Album Grouping Integration', () => {
     await uploadPhotos([file1, file2]);
 
     // Get albums
-    const albums = getAlbums();
+    const albums = await getAlbums();
     const albumsWithCount2 = albums.filter((a) => a.photo_count >= 2);
 
     // Should have at least one album with multiple photos

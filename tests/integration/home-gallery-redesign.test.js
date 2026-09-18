@@ -5,11 +5,11 @@ import { renderNav } from '../../src/ui/nav.js';
 import { renderHero } from '../../src/ui/hero.js';
 import { renderPhotoGallery } from '../../src/ui/photo-gallery.js';
 
-function renderHomeSection() {
+async function renderHomeSection() {
   const container = document.createElement('div');
   container.appendChild(renderNav('home'));
   container.appendChild(renderHero());
-  container.appendChild(renderPhotoGallery(getAllPhotos(), { emptyStateVariant: 'photos' }));
+  container.appendChild(renderPhotoGallery(await getAllPhotos(), { emptyStateVariant: 'photos' }));
   return container;
 }
 
@@ -24,7 +24,7 @@ describe('Home page redesign', () => {
       new File(['b'], 'b.jpg', { type: 'image/jpeg', lastModified: new Date('2026-08-01').getTime() })
     ]);
 
-    const home = renderHomeSection();
+    const home = await renderHomeSection();
 
     expect(home.querySelector('.app-nav')).not.toBeNull();
     expect(home.querySelector('.app-nav-link.is-active').textContent).toContain('Home');
@@ -33,8 +33,8 @@ describe('Home page redesign', () => {
     expect(home.querySelectorAll('.photo-card')).toHaveLength(2);
   });
 
-  it('renders the photos empty state when the database has no photos', () => {
-    const home = renderHomeSection();
+  it('renders the photos empty state when the database has no photos', async () => {
+    const home = await renderHomeSection();
 
     expect(home.querySelector('.empty-state')).not.toBeNull();
     expect(home.querySelector('.empty-state-heading').textContent).toBe('No creations yet!');

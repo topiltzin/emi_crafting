@@ -13,14 +13,14 @@ describe('Album Reorder Integration', () => {
     await createAlbum('2026-09-12');
 
     // Get initial order
-    const initialOrder = getAlbums(true);
+    const initialOrder = await getAlbums(true);
     expect(initialOrder.length).toBeGreaterThanOrEqual(3);
 
     // Reorder: move album1 to position 1
     await updateAlbumOrder(album1.id, 1);
 
     // Get new order
-    const newOrder = getAlbums(true);
+    const newOrder = await getAlbums(true);
 
     // Album1 should be at position 1
     expect(newOrder[1].id).toBe(album1.id);
@@ -36,7 +36,7 @@ describe('Album Reorder Integration', () => {
     await updateAlbumOrder(album2.id, 0);
 
     // Get order (simulates reload)
-    const order = getAlbums(true);
+    const order = await getAlbums(true);
 
     // Verify custom order is maintained
     expect(order[0].id).toBe(album2.id);
@@ -58,7 +58,7 @@ describe('Album Reorder Integration', () => {
     }
 
     // Verify reverse order
-    const ordered = getAlbums(true);
+    const ordered = await getAlbums(true);
     for (let i = 0; i < albums.length; i++) {
       expect(ordered[i].id).toBe(albums[albums.length - 1 - i].id);
     }
@@ -79,7 +79,7 @@ describe('Album Reorder Integration', () => {
     await createAlbum('2026-09-12');
 
     // Get default order (no custom ordering)
-    const order = getAlbums(false); // false = chronological
+    const order = await getAlbums(false); // false = chronological
 
     // Verify chronological order (newest first)
     expect(order[0].album_date).toBe('2026-09-15');

@@ -2,24 +2,32 @@ import {
   initDB,
   getAlbums,
   getAllPhotos,
-  persistDB,
   deletePhoto,
   deleteAlbum,
+  updateAlbum,
   updateAlbumOrder,
   toggleFavorite
 } from './modules/db.js';
 import { uploadPhotos } from './modules/photo.js';
 import { createAlbumIfNeeded } from './modules/album.js';
-import { renderAlbumGrid, attachAlbumGridEvents, attachAlbumDragDrop } from './ui/album-grid.js';
+import {
+  renderAlbumGrid,
+  attachAlbumGridEvents,
+  attachAlbumDragDrop,
+  formatAlbumDate
+} from './ui/album-grid.js';
 import { renderAlbumView, attachAlbumViewEvents } from './ui/album-view.js';
 import { renderNav, attachNavEvents } from './ui/nav.js';
 import { renderHero, attachHeroEvents } from './ui/hero.js';
 import { renderPhotoGallery, attachPhotoGalleryEvents } from './ui/photo-gallery.js';
 import { renderUploadZone, attachUploadZoneEvents } from './ui/upload-zone.js';
 import { openDialog } from './ui/dialog.js';
-import { showCreateAlbumDialog } from './ui/create-album-dialog.js';
+import { showCreateAlbumDialog, showRenameAlbumDialog } from './ui/create-album-dialog.js';
+import { showConfirmDialog } from './ui/confirm-dialog.js';
 import { initTheme, setThemePreference } from './modules/theme.js';
 import { getPhotos, getAlbum } from './modules/db.js';
+import { getSession, signInOwner } from './modules/supabase-client.js';
+import { renderAuthView } from './ui/auth-view.js';
 
 let currentSection = 'home';
 let currentAlbumId = null;
@@ -27,13 +35,57 @@ let currentAlbumId = null;
 export async function initApp() {
   try {
     initTheme();
-    await initDB();
 
-    buildShell();
-    await navigateTo('home');
+    const session = await getSession();
+    if (!session) {
+      showAuthView();
+      return;
+    }
+
+    await startAuthenticatedApp();
   } catch (error) {
     console.error('Failed to initialize app:', error);
-    showError(`Failed to initialize app: ${error.message}`);
+    showError(describeError(error, 'Failed to initialize app'));
+  }
+}
+
+// FR-007/SC-005: a network failure gets a specific, actionable message instead of a raw
+// error string or an empty/broken gallery.
+function describeError(error, contextMessage) {
+  if (error && error.code === 'network') {
+    return "Can't reach your photo library — check your connection and try again.";
+  }
+  return `${contextMessage}: ${error.message}`;
+}
+
+function showAuthView() {
+  const app = document.getElementById('app');
+  app.innerHTML = '';
+
+  const view = renderAuthView({
+    onSignIn: async (email, password) => {
+      await signInOwner(email, password);
+      app.innerHTML = '';
+      await startAuthenticatedApp();
+    }
+  });
+
+  app.appendChild(view);
+}
+
+async function startAuthenticatedApp() {
+  const migrationResult = await initDB();
+  buildShell();
+  await navigateTo('home');
+
+  // FR-006: if a pre-existing local library didn't fully transfer to the cloud, local data is
+  // untouched and safe — tell the user rather than silently retrying forever in the background.
+  if (migrationResult && migrationResult.failed > 0) {
+    const totalAttempted = migrationResult.migrated + migrationResult.failed;
+    showError(
+      `${migrationResult.migrated} of ${totalAttempted} existing photos were transferred to your cloud library. ` +
+        "The rest are still safe on this device — we'll try again next time you open the app."
+    );
   }
 }
 
@@ -88,7 +140,7 @@ async function renderSection(section) {
   } catch (error) {
     console.error(`Failed to load section ${section}:`, error);
     main.removeChild(loading);
-    showError(`Failed to load: ${error.message}`);
+    showError(describeError(error, 'Failed to load'));
   }
 }
 
@@ -97,7 +149,7 @@ async function renderHomeSection(main) {
   attachHeroEvents(hero, handleAddPhotosEntry, handleCreateAlbum);
   main.appendChild(hero);
 
-  const photos = getAllPhotos();
+  const photos = await getAllPhotos();
   const gallery = renderPhotoGallery(photos, { emptyStateVariant: 'photos' });
   attachPhotoGalleryEvents(gallery, handleToggleFavorite, handleDeletePhotoFromGallery);
   attachEmptyStateBridge(gallery);
@@ -105,7 +157,7 @@ async function renderHomeSection(main) {
 }
 
 async function renderPhotosSection(main) {
-  const photos = getAllPhotos();
+  const photos = await getAllPhotos();
   const gallery = renderPhotoGallery(photos, { emptyStateVariant: 'photos' });
   attachPhotoGalleryEvents(gallery, handleToggleFavorite, handleDeletePhotoFromGallery);
   attachEmptyStateBridge(gallery);
@@ -113,7 +165,7 @@ async function renderPhotosSection(main) {
 }
 
 async function renderFavoritesSection(main) {
-  const photos = getAllPhotos({ favoritesOnly: true });
+  const photos = await getAllPhotos({ favoritesOnly: true });
   const gallery = renderPhotoGallery(photos, { emptyStateVariant: 'favorites' });
   attachPhotoGalleryEvents(gallery, handleToggleFavorite, handleDeletePhotoFromGallery);
   attachEmptyStateBridge(gallery);
@@ -123,8 +175,8 @@ async function renderFavoritesSection(main) {
 async function renderSettingsSection(main) {
   const { renderSettingsView, attachSettingsViewEvents } = await import('./ui/settings-view.js');
   const { version: appVersion } = await import('../package.json');
-  const albums = getAlbums();
-  const photos = getAllPhotos({ limit: 100000 });
+  const albums = await getAlbums();
+  const photos = await getAllPhotos({ limit: 100000 });
 
   const view = renderSettingsView({
     photoCount: photos.length,
@@ -136,7 +188,7 @@ async function renderSettingsSection(main) {
 }
 
 async function renderAlbumsSection(main) {
-  const albums = getAlbums();
+  const albums = await getAlbums();
 
   const toolbar = document.createElement('div');
   toolbar.className = 'toolbar';
@@ -150,7 +202,7 @@ async function renderAlbumsSection(main) {
   const grid = renderAlbumGrid(albums);
   main.appendChild(grid);
 
-  attachAlbumGridEvents(grid, handleViewAlbum, handleDeleteAlbum);
+  attachAlbumGridEvents(grid, handleViewAlbum, handleDeleteAlbum, handleEditAlbum);
   attachAlbumDragDrop(grid, handleReorderAlbums);
 
   grid.addEventListener('click', (event) => {
@@ -172,23 +224,25 @@ async function renderAlbumDetail(albumId) {
   main.appendChild(loading);
 
   try {
-    const album = getAlbum(albumId);
+    const album = await getAlbum(albumId);
     if (!album) {
       throw new Error('Album not found');
     }
 
-    const photos = getPhotos(albumId);
+    const photos = await getPhotos(albumId);
     main.removeChild(loading);
 
     const view = renderAlbumView(album, photos);
     main.appendChild(view);
 
-    attachAlbumViewEvents(view, handleBackToAlbums, handleAddPhotos, handleDeletePhoto);
+    attachAlbumViewEvents(view, handleBackToAlbums, handleAddPhotos, handleDeletePhoto, () =>
+      handleEditAlbum(albumId)
+    );
     attachPhotoGalleryEvents(view, handleToggleFavorite, null);
   } catch (error) {
     console.error('Failed to load album:', error);
     main.removeChild(loading);
-    showError(`Failed to load album: ${error.message}`);
+    showError(describeError(error, 'Failed to load album'));
   }
 }
 
@@ -214,11 +268,41 @@ async function handleCreateAlbum() {
 
   const today = new Date().toISOString().slice(0, 10);
   try {
-    await createAlbumIfNeeded(today, title || null);
-    await navigateTo('albums');
+    const { album, created } = await createAlbumIfNeeded(today, title || null);
+    if (created) {
+      await navigateTo('albums');
+      return;
+    }
+
+    // FR-002: an album for today already exists — createAlbumIfNeeded returned it as-is rather
+    // than silently discarding the name the user just typed. Tell them and offer a way out.
+    await handleAlbumAlreadyExistsForToday(album);
   } catch (error) {
     console.error('Create album failed:', error);
-    showError(`Failed to create album: ${error.message}`);
+    showError(describeError(error, 'Failed to create album'));
+  }
+}
+
+async function handleAlbumAlreadyExistsForToday(existingAlbum) {
+  const existingName = existingAlbum.title || formatAlbumDate(existingAlbum.album_date);
+  const wantsRename = await showConfirmDialog({
+    title: 'Album already exists',
+    message: `You already have an album for today ("${existingName}"). Rename it, or keep it as is?`,
+    confirmLabel: 'Rename it',
+    cancelLabel: 'Keep as is',
+    danger: false
+  });
+  if (!wantsRename) return;
+
+  const newTitle = await showRenameAlbumDialog(existingAlbum.title || '');
+  if (newTitle === null) return;
+
+  try {
+    await updateAlbum(existingAlbum.id, { title: newTitle });
+    await navigateTo('albums');
+  } catch (error) {
+    console.error('Rename album failed:', error);
+    showError(describeError(error, 'Failed to rename album'));
   }
 }
 
@@ -269,7 +353,7 @@ async function handleUploadPhotos(files) {
     }, 1500);
   } catch (error) {
     console.error('Upload failed:', error);
-    showError(`Upload failed: ${error.message}`);
+    showError(describeError(error, 'Upload failed'));
   }
 }
 
@@ -290,7 +374,7 @@ function handleAddPhotos() {
     try {
       const status = showStatus(`Adding ${files.length} photo${files.length !== 1 ? 's' : ''}...`);
 
-      const result = await uploadPhotos(files);
+      const result = await uploadPhotos(files, currentAlbumId);
 
       if (result.errors.length > 0) {
         updateStatus(status, `Added ${result.uploaded.length} photos. Failed: ${result.errors.length}`, 'error');
@@ -303,14 +387,13 @@ function handleAddPhotos() {
       }, 1500);
     } catch (error) {
       console.error('Add photos failed:', error);
-      showError(`Add photos failed: ${error.message}`);
+      showError(describeError(error, 'Add photos failed'));
     }
   });
 }
 
 async function handleDeletePhoto(photoId) {
   await deletePhoto(photoId, false);
-  await persistDB();
 
   if (currentAlbumId) {
     await renderAlbumDetail(currentAlbumId);
@@ -319,7 +402,6 @@ async function handleDeletePhoto(photoId) {
 
 async function handleDeletePhotoFromGallery(photoId) {
   await deletePhoto(photoId, false);
-  await persistDB();
   await renderSection(currentSection);
 }
 
@@ -338,7 +420,7 @@ async function handleToggleFavorite(photoId) {
     }
   } catch (error) {
     console.error('Toggle favorite failed:', error);
-    showError(`Failed to update favorite: ${error.message}`);
+    showError(describeError(error, 'Failed to update favorite'));
   }
 }
 
@@ -348,7 +430,28 @@ async function handleDeleteAlbum(albumId) {
     await navigateTo('albums');
   } catch (error) {
     console.error('Delete album failed:', error);
-    showError(`Delete album failed: ${error.message}`);
+    showError(describeError(error, 'Delete album failed'));
+  }
+}
+
+async function handleEditAlbum(albumId) {
+  try {
+    const album = await getAlbum(albumId);
+    if (!album) return;
+
+    const newTitle = await showRenameAlbumDialog(album.title || '');
+    if (newTitle === null) return;
+
+    await updateAlbum(albumId, { title: newTitle });
+
+    if (currentAlbumId === albumId) {
+      await renderAlbumDetail(albumId);
+    } else {
+      await renderSection(currentSection);
+    }
+  } catch (error) {
+    console.error('Rename album failed:', error);
+    showError(describeError(error, 'Failed to rename album'));
   }
 }
 
@@ -359,7 +462,7 @@ async function handleReorderAlbums(albumId, newPosition) {
     await renderSection('albums');
   } catch (error) {
     console.error('Reorder failed:', error);
-    showError(`Failed to reorder album: ${error.message}`);
+    showError(describeError(error, 'Failed to reorder album'));
     throw error;
   }
 }

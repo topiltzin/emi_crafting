@@ -39,12 +39,10 @@ export function createAlbumCard(album, index = 0) {
   // Cover image or placeholder
   const thumbnail = document.createElement('div');
   thumbnail.className = 'album-thumbnail';
-  if (album.cover_thumbnail_base64) {
+  if (album.cover_thumbnail_url) {
     const img = document.createElement('img');
     img.className = 'album-thumbnail-img';
-    img.src = album.cover_thumbnail_base64.startsWith('data:')
-      ? album.cover_thumbnail_base64
-      : `data:image/jpeg;base64,${album.cover_thumbnail_base64}`;
+    img.src = album.cover_thumbnail_url;
     img.alt = `Cover photo for ${album.title || formatAlbumDate(album.album_date)}`;
     img.loading = 'lazy';
     thumbnail.appendChild(img);
@@ -78,6 +76,13 @@ export function createAlbumCard(album, index = 0) {
   viewBtn.setAttribute('data-action', 'view');
   viewBtn.setAttribute('data-album-id', album.id);
 
+  const editBtn = document.createElement('button');
+  editBtn.className = 'btn btn-secondary btn-sm';
+  editBtn.textContent = 'Edit';
+  editBtn.setAttribute('data-action', 'edit');
+  editBtn.setAttribute('data-album-id', album.id);
+  editBtn.setAttribute('aria-label', `Rename album: ${album.title || formatAlbumDate(album.album_date)}`);
+
   const deleteBtn = document.createElement('button');
   deleteBtn.className = 'btn btn-danger btn-sm';
   deleteBtn.textContent = 'Delete';
@@ -87,6 +92,7 @@ export function createAlbumCard(album, index = 0) {
   deleteBtn.setAttribute('data-photo-count', album.photo_count);
 
   actions.appendChild(viewBtn);
+  actions.appendChild(editBtn);
   actions.appendChild(deleteBtn);
 
   info.appendChild(title);
@@ -100,21 +106,18 @@ export function createAlbumCard(album, index = 0) {
   return card;
 }
 
-export function attachAlbumGridEvents(gridElement, onViewAlbum, onDeleteAlbum) {
+export function attachAlbumGridEvents(gridElement, onViewAlbum, onDeleteAlbum, onEditAlbum) {
   gridElement.addEventListener('click', async (event) => {
-    const viewBtn = event.target.closest('[data-action="view"]');
-    const deleteBtn = event.target.closest('[data-action="delete"]');
+    const card = event.target.closest('.album-card');
+    if (!card) return;
 
-    if (viewBtn) {
-      const albumId = parseInt(viewBtn.getAttribute('data-album-id'), 10);
-      onViewAlbum(albumId);
-      return;
-    }
+    const albumId = card.getAttribute('data-album-id');
+    const actionEl = event.target.closest('[data-action]');
+    const action = actionEl ? actionEl.getAttribute('data-action') : null;
 
-    if (deleteBtn) {
-      const albumId = parseInt(deleteBtn.getAttribute('data-album-id'), 10);
-      const albumTitle = deleteBtn.getAttribute('data-album-title');
-      const photoCount = deleteBtn.getAttribute('data-photo-count');
+    if (action === 'delete') {
+      const albumTitle = actionEl.getAttribute('data-album-title');
+      const photoCount = actionEl.getAttribute('data-photo-count');
       const confirmed = await showConfirmDialog({
         title: 'Delete album?',
         message: `"${albumTitle}" and its ${photoCount} photo${photoCount !== '1' ? 's' : ''} will be removed. This can't be undone.`
@@ -124,6 +127,25 @@ export function attachAlbumGridEvents(gridElement, onViewAlbum, onDeleteAlbum) {
       }
       return;
     }
+
+    if (action === 'edit') {
+      if (typeof onEditAlbum === 'function') onEditAlbum(albumId);
+      return;
+    }
+
+    // Anywhere else on the card — including the explicit "View" button — opens the album.
+    // Cards look and hover like they're clickable everywhere, so they must behave that way.
+    onViewAlbum(albumId);
+  });
+
+  gridElement.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter' && event.key !== ' ' && event.key !== 'Spacebar') return;
+    // Only when the keypress originates on the card itself — a nested <button> (View/Delete/
+    // Edit) already handles its own Enter/Space activation natively, so this must not also fire.
+    if (!event.target.classList || !event.target.classList.contains('album-card')) return;
+
+    event.preventDefault();
+    onViewAlbum(event.target.getAttribute('data-album-id'));
   });
 }
 

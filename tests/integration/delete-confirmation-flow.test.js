@@ -14,7 +14,7 @@ function clickNav(label) {
 
 async function waitFor(conditionFn, timeoutMs = 2000) {
   const deadline = Date.now() + timeoutMs;
-  while (!conditionFn() && Date.now() < deadline) {
+  while (!(await conditionFn()) && Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
 }
@@ -49,15 +49,15 @@ describe('Delete confirmation uses an in-app dialog, not window.confirm', () => 
     // Scenario: cancel leaves the photo untouched.
     getApp().querySelector('[data-action="confirm-dialog-cancel"]').click();
     await new Promise((r) => setTimeout(r, 0));
-    expect(getAllPhotos()).toHaveLength(1);
+    expect(await getAllPhotos()).toHaveLength(1);
 
     // Scenario: confirm removes it.
     getApp().querySelector('[data-action="delete-photo"]').click();
     await waitFor(() => getApp().querySelector('[data-action="confirm-dialog-confirm"]'));
     getApp().querySelector('[data-action="confirm-dialog-confirm"]').click();
-    await waitFor(() => getAllPhotos().length === 0);
+    await waitFor(async () => (await getAllPhotos()).length === 0);
 
-    expect(getAllPhotos()).toHaveLength(0);
+    expect(await getAllPhotos()).toHaveLength(0);
     expect(confirmSpy).not.toHaveBeenCalled();
     confirmSpy.mockRestore();
   });
@@ -84,15 +84,15 @@ describe('Delete confirmation uses an in-app dialog, not window.confirm', () => 
     // Cancel: album untouched.
     getApp().querySelector('[data-action="confirm-dialog-cancel"]').click();
     await new Promise((r) => setTimeout(r, 0));
-    expect(getAlbums()).toHaveLength(1);
+    expect(await getAlbums()).toHaveLength(1);
 
     // Confirm: album removed.
     getApp().querySelector('[data-action="delete"]').click();
     await waitFor(() => getApp().querySelector('[data-action="confirm-dialog-confirm"]'));
     getApp().querySelector('[data-action="confirm-dialog-confirm"]').click();
-    await waitFor(() => getAlbums().length === 0);
+    await waitFor(async () => (await getAlbums()).length === 0);
 
-    expect(getAlbums()).toHaveLength(0);
+    expect(await getAlbums()).toHaveLength(0);
     confirmSpy.mockRestore();
   });
 });

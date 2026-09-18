@@ -8,7 +8,7 @@ export function initDragDrop(gridElement, onReorder) {
     if (!card) return;
 
     draggedElement = card;
-    draggedAlbumId = parseInt(card.getAttribute('data-album-id'), 10);
+    draggedAlbumId = card.getAttribute('data-album-id');
 
     // Get index
     const cards = Array.from(gridElement.querySelectorAll('.album-card'));
@@ -47,11 +47,12 @@ export function initDragDrop(gridElement, onReorder) {
     }
 
     const cards = Array.from(gridElement.querySelectorAll('.album-card'));
-    const newIndex = cards.indexOf(card);
+    const dropIndex = cards.indexOf(card);
 
-    if (newIndex >= 0 && draggedFromIndex !== newIndex) {
+    if (dropIndex >= 0 && draggedFromIndex !== dropIndex) {
+      const newPosition = calculateNewPosition(draggedFromIndex, dropIndex, cards.length);
       try {
-        await onReorder(draggedAlbumId, newIndex);
+        await onReorder(draggedAlbumId, newPosition);
       } catch (error) {
         console.error('Drag-drop reorder failed:', error);
       }

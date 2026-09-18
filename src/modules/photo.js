@@ -3,15 +3,16 @@ import { readFileAsBase64, generateThumbnail, validateFileSize, getMimeType } fr
 import { getPhotoDate, getExifData } from './exif.js';
 import { createAlbumIfNeeded } from './album.js';
 
-export async function uploadPhotos(files) {
+export async function uploadPhotos(files, albumId = null) {
   const uploadedPhotos = [];
   const errors = [];
 
   for (const file of files) {
     try {
-      const photo = await addPhoto(null, file);
+      const photo = await addPhoto(albumId, file);
       uploadedPhotos.push(photo);
     } catch (error) {
+      console.error(`Failed to upload ${file.name}:`, error);
       errors.push({
         filename: file.name,
         error: error.message
@@ -38,7 +39,7 @@ export async function addPhoto(albumIdOrNull, file) {
     // Create or get album for this date
     let albumId = albumIdOrNull;
     if (!albumId) {
-      const album = await createAlbumIfNeeded(photoDate);
+      const { album } = await createAlbumIfNeeded(photoDate);
       albumId = album.id;
     }
 

@@ -32,11 +32,18 @@ export function renderAlbumView(album, photos) {
   const actions = document.createElement('div');
   actions.className = 'flex gap-md';
 
+  const editBtn = document.createElement('button');
+  editBtn.className = 'btn btn-secondary';
+  editBtn.textContent = 'Edit';
+  editBtn.setAttribute('data-action', 'edit-album');
+  editBtn.setAttribute('aria-label', `Rename album: ${album.title || formatAlbumDate(album.album_date)}`);
+
   const addBtn = document.createElement('button');
   addBtn.className = 'btn btn-primary';
   addBtn.textContent = '+ Add Photos';
   addBtn.setAttribute('data-action', 'add-photos');
 
+  actions.appendChild(editBtn);
   actions.appendChild(addBtn);
   header.appendChild(headerInfo);
   header.appendChild(actions);
@@ -69,10 +76,11 @@ function renderPhotoGrid(photos) {
   return container;
 }
 
-export function attachAlbumViewEvents(container, onBack, onAddPhotos, onDeletePhoto) {
+export function attachAlbumViewEvents(container, onBack, onAddPhotos, onDeletePhoto, onEditAlbum) {
   container.addEventListener('click', async (event) => {
     const backBtn = event.target.closest('[data-action="back"]');
     const addBtn = event.target.closest('[data-action="add-photos"]');
+    const editBtn = event.target.closest('[data-action="edit-album"]');
     const deleteBtn = event.target.closest('[data-action="delete-photo"]');
 
     if (backBtn) {
@@ -85,8 +93,13 @@ export function attachAlbumViewEvents(container, onBack, onAddPhotos, onDeletePh
       return;
     }
 
+    if (editBtn) {
+      if (typeof onEditAlbum === 'function') onEditAlbum();
+      return;
+    }
+
     if (deleteBtn) {
-      const photoId = parseInt(deleteBtn.getAttribute('data-photo-id'), 10);
+      const photoId = deleteBtn.getAttribute('data-photo-id');
       const filename = deleteBtn.getAttribute('data-photo-filename');
       const confirmed = await showConfirmDialog({
         title: 'Delete photo?',

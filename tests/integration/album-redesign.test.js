@@ -14,7 +14,7 @@ describe('Album grid redesign', () => {
       new File(['b'], 'b.jpg', { type: 'image/jpeg', lastModified: new Date('2026-08-01').getTime() })
     ]);
 
-    const albums = getAlbums();
+    const albums = await getAlbums();
     const grid = renderAlbumGrid(albums);
 
     const cards = grid.querySelectorAll('.album-card');
@@ -39,12 +39,12 @@ describe('Album grid redesign', () => {
     await uploadPhotos([new File(['b'], 'b.jpg', { type: 'image/jpeg', lastModified: new Date('2026-09-05').getTime() })]);
     await uploadPhotos([new File(['c'], 'c.jpg', { type: 'image/jpeg', lastModified: new Date('2026-09-10').getTime() })]);
 
-    const albums = getAlbums(false);
+    const albums = await getAlbums(false);
     const [first] = albums;
 
     await updateAlbumOrder(first.id, 2);
 
-    const reordered = getAlbums(true);
+    const reordered = await getAlbums(true);
     expect(reordered[2].id).toBe(first.id);
   });
 });

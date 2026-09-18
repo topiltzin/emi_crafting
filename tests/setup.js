@@ -1,9 +1,36 @@
-// jsdom (the vitest "jsdom" environment) does not implement IndexedDB. The app's storage layer
-// (src/modules/db.js) persists the sql.js database to IndexedDB, so tests need a working
-// implementation. fake-indexeddb/auto installs one on the global scope before any test runs.
+// jsdom (the vitest "jsdom" environment) does not implement IndexedDB. src/modules/migration.js
+// (Phase 4) reads pre-existing local data via IndexedDB; fake-indexeddb/auto installs a working
+// implementation on the global scope before any test runs.
 import 'fake-indexeddb/auto';
-import { afterEach } from 'vitest';
-import { resetDatabaseForTests } from '../src/modules/db.js';
+
+import { vi, beforeEach } from 'vitest';
+import { resetFakeClient, getCurrentFakeClient } from './helpers/fake-supabase-mock.js';
+import { resetMigrationLedgerForTests } from '../src/modules/migration-ledger.js';
+
+// Every test in the suite talks to src/modules/db.js, which talks to Supabase via
+// src/modules/supabase-client.js. Mocking that one module here — instead of in every test
+// file — means individual test files don't need their own vi.mock boilerplate; a test that
+// needs to inspect or customize the fake backend (e.g. simulate a network failure) can still
+// pull the live instance via getCurrentFakeClient() from tests/helpers/fake-supabase-mock.js.
+vi.mock('../src/modules/supabase-client.js', () => ({
+  getSupabaseClient: () => getCurrentFakeClient(),
+  getOwnerId: () => getCurrentFakeClient()._ownerId,
+  getSession: async () => {
+    const { data } = await getCurrentFakeClient().auth.getSession();
+    return data.session;
+  },
+  signInOwner: async (email, password) => {
+    const { data, error } = await getCurrentFakeClient().auth.signInWithPassword({ email, password });
+    if (error) throw error;
+    return data.session;
+  },
+  resetSupabaseClientForTests: () => {}
+}));
+
+beforeEach(() => {
+  resetFakeClient({ ownerId: 'owner-1' });
+  resetMigrationLedgerForTests();
+});
 
 // jsdom has no real image codec or <canvas> 2D context (the optional native "canvas" package
 // isn't installed). src/modules/storage.js's generateThumbnail() relies on both to decode an
@@ -26,8 +53,10 @@ if (typeof HTMLCanvasElement !== 'undefined') {
   HTMLCanvasElement.prototype.getContext = () => ({
     drawImage: () => {}
   });
+  // Must be valid base64 — src/modules/db.js now decodes this to upload it as Storage bytes,
+  // unlike the old sql.js-backed db.js which just stored the raw string in a TEXT column.
   HTMLCanvasElement.prototype.toDataURL = (type = 'image/jpeg') =>
-    `data:${type};base64,mock-thumbnail-data`;
+    `data:${type};base64,${btoa('mock-thumbnail-data')}`;
 }
 
 // jsdom does not implement URL.createObjectURL/revokeObjectURL (used by src/ui/upload-zone.js
@@ -71,10 +100,3 @@ if (typeof globalThis.localStorage === 'undefined' || !globalThis.localStorage) 
   if (typeof window !== 'undefined') window.localStorage = memoryStorage;
 }
 
-// src/modules/db.js caches its sql.js Database as a module-level singleton (by design, so the
-// real app only initializes sql.js once). Within a single test file, that means every test
-// shares one growing database unless it's cleared between tests — otherwise tests that reuse
-// the same fixture date (e.g. '2026-09-14') collide on Albums.album_date's UNIQUE constraint.
-afterEach(async () => {
-  await resetDatabaseForTests();
-});

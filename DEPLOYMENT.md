@@ -4,6 +4,32 @@
 
 ---
 
+## ☁️ Supabase Setup (required before first deploy)
+
+The app stores all albums and photos in Supabase instead of only the browser (see
+`specs/004-supabase-data-migration/`). Set this up once per Supabase project:
+
+1. **Apply the schema**: run `supabase/schema.sql` against your project — either paste it into
+   the Supabase SQL editor, or `supabase db push` if you use CLI migrations. This creates the
+   `albums`/`photos` tables, their indexes, and the Row Level Security (RLS) policies that scope
+   every row to the single owner account.
+2. **Create the Storage bucket**: create a **private** bucket named `photos`
+   (`supabase storage buckets create photos --private`, or via the dashboard). The Storage
+   policies in `supabase/schema.sql` (bottom section) restrict objects in this bucket to the
+   owner's own folder — apply those too if your setup doesn't already.
+3. **Create the single owner account**: create exactly one Supabase Auth user (dashboard →
+   Authentication, or `supabase auth`). This is the account the app signs in as — the app has no
+   multi-user sign-up flow by design (single personal account, see spec.md FR-009).
+4. **Configure environment variables**: copy `.env.example` to `.env.local` and fill in
+   `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` from your project's API settings. **Never**
+   put the Supabase secret/service key in any `.env*` file or elsewhere in the repo — the app
+   never needs it, since RLS + the owner's authenticated session is what protects the data.
+
+Full validation steps (including verifying data survives a cleared browser and migrates from
+any pre-existing local data) are in `specs/004-supabase-data-migration/quickstart.md`.
+
+---
+
 ## 📋 Pre-Deployment Checklist
 
 ### Code & Quality

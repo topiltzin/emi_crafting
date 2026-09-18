@@ -31,7 +31,7 @@ describe('Album Upload & View Integration', () => {
     expect(result.errors).toHaveLength(0);
 
     // Check albums were created
-    const albums = getAlbums();
+    const albums = await getAlbums();
     expect(albums.length).toBeGreaterThanOrEqual(2);
 
     // Check photos are in albums
@@ -50,7 +50,7 @@ describe('Album Upload & View Integration', () => {
     expect(result.uploaded).toHaveLength(1);
 
     const photo = result.uploaded[0];
-    const photos = getPhotos(photo.album_id);
+    const photos = await getPhotos(photo.album_id);
 
     expect(photos.length).toBeGreaterThan(0);
     expect(photos[0].filename).toBe('photo.jpg');
@@ -67,7 +67,7 @@ describe('Album Upload & View Integration', () => {
     const photo = result.uploaded[0];
 
     // Get album
-    const albums = getAlbums();
+    const albums = await getAlbums();
     const album = albums.find((a) => a.id === photo.album_id);
 
     expect(album).toBeDefined();

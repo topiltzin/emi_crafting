@@ -84,10 +84,7 @@ export function createPhotoCard(photo, options = {}) {
 }
 
 function getThumbnailUrl(photo) {
-  if (!photo.thumbnail_base64) return '';
-  return photo.thumbnail_base64.startsWith('data:')
-    ? photo.thumbnail_base64
-    : `data:image/jpeg;base64,${photo.thumbnail_base64}`;
+  return photo.thumbnail_url || '';
 }
 
 export function formatPhotoDate(dateString) {

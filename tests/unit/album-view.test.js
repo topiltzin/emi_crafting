@@ -16,6 +16,11 @@ describe('renderAlbumView', () => {
     expect(view.querySelectorAll('.photo-card')).toHaveLength(2);
   });
 
+  it('renders an Edit action in the header', () => {
+    const view = renderAlbumView(album, photos);
+    expect(view.querySelector('[data-action="edit-album"]')).not.toBeNull();
+  });
+
   it('uses a custom title when present', () => {
     const view = renderAlbumView({ ...album, title: 'Paper Crafts' }, photos);
     expect(view.querySelector('.album-header-info h2').textContent).toBe('Paper Crafts');
@@ -52,7 +57,21 @@ describe('attachAlbumViewEvents', () => {
     document.querySelector('[data-action="confirm-dialog-confirm"]').click();
     await Promise.resolve();
     await Promise.resolve();
-    expect(onDeletePhoto).toHaveBeenCalledWith(10);
+    // Photo/album ids are opaque strings end-to-end now (Supabase uses UUIDs); the UI reads
+    // them straight from DOM attributes without parsing, so a numeric fixture id round-trips
+    // as its string form.
+    expect(onDeletePhoto).toHaveBeenCalledWith('10');
+  });
+
+  it('invokes onEditAlbum when the header Edit action is clicked', () => {
+    const view = renderAlbumView(album, photos);
+    document.getElementById('app').appendChild(view);
+    const onEditAlbum = vi.fn();
+
+    attachAlbumViewEvents(view, vi.fn(), vi.fn(), vi.fn(), onEditAlbum);
+    view.querySelector('[data-action="edit-album"]').click();
+
+    expect(onEditAlbum).toHaveBeenCalledTimes(1);
   });
 
   it('does not delete when the confirm dialog is declined', async () => {

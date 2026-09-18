@@ -51,7 +51,7 @@ describe('Upload zone integration', () => {
 
     expect(uploadResult.uploaded).toHaveLength(1);
 
-    const photos = getAllPhotos();
+    const photos = await getAllPhotos();
     expect(photos).toHaveLength(1);
     expect(photos[0].filename).toBe('craft.jpg');
     expect(photos[0].photo_date).toBe('2026-09-14');

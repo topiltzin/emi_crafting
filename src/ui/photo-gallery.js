@@ -86,7 +86,7 @@ export function attachPhotoGalleryEvents(galleryElement, onToggleFavorite, onDel
   galleryElement.addEventListener('click', async (event) => {
     const deleteBtn = event.target.closest('[data-action="delete-photo"]');
     if (deleteBtn && onDeletePhoto) {
-      const photoId = parseInt(deleteBtn.getAttribute('data-photo-id'), 10);
+      const photoId = deleteBtn.getAttribute('data-photo-id');
       const filename = deleteBtn.getAttribute('data-photo-filename');
       const confirmed = await showConfirmDialog({
         title: 'Delete photo?',

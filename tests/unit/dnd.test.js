@@ -111,7 +111,7 @@ describe('Drag-Drop Module', () => {
       expect(cards[1].classList.contains('drag-over')).toBe(false);
     });
 
-    it('calls onReorder with the dragged album id and drop index, then cleans up', async () => {
+    it('calls onReorder with the dragged album id and the corrected drop position, then cleans up', async () => {
       const onReorder = vi.fn().mockResolvedValue();
       initDragDrop(gridElement, onReorder);
 
@@ -120,9 +120,26 @@ describe('Drag-Drop Module', () => {
       cards[2].dispatchEvent(makeDragEvent('drop'));
       await new Promise((resolve) => setTimeout(resolve, 0));
 
-      expect(onReorder).toHaveBeenCalledWith(1, 2);
+      // Album ids are opaque strings end-to-end now (Supabase uses UUIDs); dnd.js reads the
+      // id straight from the DOM attribute without parsing it as a number.
+      // Forward drag (0 -> 2 of 3): calculateNewPosition(0, 2, 3) === 1, not the raw drop
+      // index 2 — dropping past other cards must land exactly where the indicator showed.
+      expect(onReorder).toHaveBeenCalledWith('1', 1);
       expect(cards[0].classList.contains('dragging')).toBe(false);
       expect(cards[2].classList.contains('drag-over')).toBe(false);
+    });
+
+    it('corrects the drop position the same way for a backward drag', async () => {
+      const onReorder = vi.fn().mockResolvedValue();
+      initDragDrop(gridElement, onReorder);
+
+      cards[2].dispatchEvent(makeDragEvent('dragstart'));
+      cards[0].dispatchEvent(makeDragEvent('dragover'));
+      cards[0].dispatchEvent(makeDragEvent('drop'));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      // Backward drag (2 -> 0 of 3): calculateNewPosition(2, 0, 3) === 0.
+      expect(onReorder).toHaveBeenCalledWith('3', 0);
     });
 
     it('does not call onReorder when dropped on the same card it started from', async () => {

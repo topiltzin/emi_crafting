@@ -2,19 +2,20 @@ import { createAlbum, getAlbum, getAlbums } from './db.js';
 
 export async function createAlbumIfNeeded(albumDate, title = null) {
   // Check if album already exists
-  const albums = getAlbums();
+  const albums = await getAlbums();
   const existing = albums.find((a) => a.album_date === albumDate);
 
   if (existing) {
-    return existing;
+    return { album: existing, created: false };
   }
 
   // Create new album
-  return await createAlbum(albumDate, title);
+  const album = await createAlbum(albumDate, title);
+  return { album, created: true };
 }
 
-export function incrementPhotoCount(albumId) {
-  const album = getAlbum(albumId);
+export async function incrementPhotoCount(albumId) {
+  const album = await getAlbum(albumId);
   if (!album) {
     throw new Error(`Album ${albumId} not found`);
   }
@@ -22,8 +23,8 @@ export function incrementPhotoCount(albumId) {
   return album;
 }
 
-export function decrementPhotoCount(albumId) {
-  const album = getAlbum(albumId);
+export async function decrementPhotoCount(albumId) {
+  const album = await getAlbum(albumId);
   if (!album) {
     throw new Error(`Album ${albumId} not found`);
   }
@@ -43,7 +44,7 @@ export async function ensureAlbumsExist(dateGroups) {
   const albums = [];
 
   for (const [date] of dateGroups) {
-    const album = await createAlbumIfNeeded(date);
+    const { album } = await createAlbumIfNeeded(date);
     albums.push(album);
   }
 

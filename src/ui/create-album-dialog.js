@@ -1,6 +1,8 @@
 import { openDialog } from './dialog.js';
 
-export function showCreateAlbumDialog() {
+// Shared by showCreateAlbumDialog() and showRenameAlbumDialog() — both are just "type an
+// album name" prompts that differ only in dialog title, initial value, and confirm label.
+function showAlbumNameDialog({ dialogTitle, initialValue = '', confirmLabel }) {
   return new Promise((resolve) => {
     const content = document.createElement('div');
 
@@ -14,6 +16,7 @@ export function showCreateAlbumDialog() {
     input.id = 'create-album-name-input';
     input.className = 'create-album-input';
     input.placeholder = "e.g. 'Paper Crafts'";
+    input.value = initialValue;
 
     const errorEl = document.createElement('p');
     errorEl.className = 'create-album-error';
@@ -33,20 +36,20 @@ export function showCreateAlbumDialog() {
     cancelBtn.setAttribute('data-action', 'create-album-cancel');
     cancelBtn.textContent = 'Cancel';
 
-    const createBtn = document.createElement('button');
-    createBtn.type = 'button';
-    createBtn.className = 'btn btn-primary';
-    createBtn.setAttribute('data-action', 'create-album-confirm');
-    createBtn.textContent = 'Create';
+    const confirmBtn = document.createElement('button');
+    confirmBtn.type = 'button';
+    confirmBtn.className = 'btn btn-primary';
+    confirmBtn.setAttribute('data-action', 'create-album-confirm');
+    confirmBtn.textContent = confirmLabel;
 
     actions.appendChild(cancelBtn);
-    actions.appendChild(createBtn);
+    actions.appendChild(confirmBtn);
     content.appendChild(actions);
 
     let resolved = false;
 
     const { close } = openDialog({
-      title: 'Create Album',
+      title: dialogTitle,
       content,
       onClose: () => {
         if (!resolved) {
@@ -69,7 +72,7 @@ export function showCreateAlbumDialog() {
       resolve(trimmed);
     }
 
-    createBtn.addEventListener('click', submit);
+    confirmBtn.addEventListener('click', submit);
     input.addEventListener('keydown', (event) => {
       if (event.key === 'Enter') {
         event.preventDefault();
@@ -82,5 +85,17 @@ export function showCreateAlbumDialog() {
       close();
       resolve(null);
     });
+  });
+}
+
+export function showCreateAlbumDialog() {
+  return showAlbumNameDialog({ dialogTitle: 'Create Album', confirmLabel: 'Create' });
+}
+
+export function showRenameAlbumDialog(currentTitle) {
+  return showAlbumNameDialog({
+    dialogTitle: 'Rename Album',
+    initialValue: currentTitle || '',
+    confirmLabel: 'Save'
   });
 }
