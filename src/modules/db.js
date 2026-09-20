@@ -378,6 +378,25 @@ export async function deletePhoto(photoId, hard = false) {
   await incrementAlbumPhotoCount(client, photo.album_id, -1);
 }
 
+export async function updatePhotoTutorialLink(photoId, tutorialLink) {
+  const client = getSupabaseClient();
+
+  const photo = await getPhoto(photoId);
+  if (!photo) throw validationError('Photo not found');
+
+  const { error } = await client
+    .from('photos')
+    .update({ tutorial_link: tutorialLink, updated_at: new Date().toISOString() })
+    .eq('id', photoId);
+  if (error) throwClassified(error, 'Failed to save tutorial link');
+
+  return getPhoto(photoId);
+}
+
+export async function removePhotoTutorialLink(photoId) {
+  return updatePhotoTutorialLink(photoId, null);
+}
+
 export async function toggleFavorite(photoId) {
   const client = getSupabaseClient();
 

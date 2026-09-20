@@ -1,3 +1,5 @@
+import { createTutorialBadge } from './tutorial-badge.js';
+
 export function createPhotoCard(photo, options = {}) {
   const { showAlbumLabel = false, showCheckbox = false } = options;
 
@@ -44,6 +46,10 @@ export function createPhotoCard(photo, options = {}) {
   favoriteBtn.setAttribute('aria-pressed', photo.is_favorite ? 'true' : 'false');
   favoriteBtn.innerHTML = '<span aria-hidden="true">♥</span>';
   media.appendChild(favoriteBtn);
+
+  if (photo.tutorial_link) {
+    media.appendChild(createTutorialBadge());
+  }
 
   const info = document.createElement('div');
   info.className = 'photo-card-info';

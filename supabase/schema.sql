@@ -39,12 +39,32 @@ create table if not exists public.photos (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   deleted_at timestamptz,
-  constraint photos_filename_length check (char_length(filename) <= 255)
+  -- Optional YouTube tutorial link (spec 008-craft-tutorial-links). Shape:
+  -- {url, videoId, title, creator, channelId, thumbnail, duration, addedAt}. channelId/duration
+  -- may be null when metadata fetch fails and a placeholder is saved (see research.md fallback).
+  tutorial_link jsonb,
+  constraint photos_filename_length check (char_length(filename) <= 255),
+  constraint photos_tutorial_link_structure check (
+    tutorial_link is null or (
+      tutorial_link ? 'url' and
+      tutorial_link ? 'videoId' and
+      jsonb_typeof(tutorial_link -> 'videoId') = 'string' and
+      char_length(tutorial_link ->> 'videoId') = 11 and
+      tutorial_link ? 'title' and
+      char_length(tutorial_link ->> 'title') between 1 and 255 and
+      tutorial_link ? 'creator' and
+      char_length(tutorial_link ->> 'creator') between 1 and 255 and
+      tutorial_link ? 'thumbnail' and
+      tutorial_link ? 'addedAt'
+    )
+  )
 );
 
 create index if not exists idx_photos_album_deleted on public.photos (album_id, deleted_at);
 create index if not exists idx_photos_owner_deleted on public.photos (owner_id, deleted_at);
 create index if not exists idx_photos_favorite on public.photos (owner_id, is_favorite) where deleted_at is null;
+create index if not exists idx_photos_tutorial_link_channel_id
+  on public.photos using gin ((tutorial_link -> 'channelId'));
 
 -- Row Level Security: every row is only visible/writable by its owner (single-owner app).
 alter table public.albums enable row level security;

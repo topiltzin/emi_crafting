@@ -24,6 +24,7 @@ function defaultsFor(table) {
       photo_date: null,
       thumbnail_storage_path: null,
       exif_json: null,
+      tutorial_link: null,
       upload_date: nowIso()
     };
   }
@@ -246,6 +247,32 @@ export function createFakeSupabaseClient({ ownerId = 'owner-1', networkDown = fa
     }
   };
 
+  let functionHandler = null;
+
+  const functions = {
+    async invoke(name, options) {
+      try {
+        checkNetwork();
+      } catch (error) {
+        return { data: null, error: { message: error.message, context: null } };
+      }
+      if (!functionHandler) {
+        return { data: null, error: { message: `No fake handler registered for function "${name}"`, context: null } };
+      }
+      const result = await functionHandler(name, options);
+      if (result && result.errorBody) {
+        return {
+          data: null,
+          error: {
+            message: result.errorBody.message || 'Function invocation failed',
+            context: { json: async () => result.errorBody }
+          }
+        };
+      }
+      return { data: result ? result.data : null, error: null };
+    }
+  };
+
   const auth = {
     async getSession() {
       return { data: { session }, error: null };
@@ -266,6 +293,7 @@ export function createFakeSupabaseClient({ ownerId = 'owner-1', networkDown = fa
     from: (table) => createQueryBuilder(table),
     storage,
     auth,
+    functions,
     // Test-only inspection/seeding hooks — not part of the real supabase-js surface.
     _ownerId: ownerId,
     _tables: tables,
@@ -281,6 +309,11 @@ export function createFakeSupabaseClient({ ownerId = 'owner-1', networkDown = fa
     },
     _failNextTableDeletes(table, count) {
       deleteFailureCountdowns[table] = count;
+    },
+    // result: {data} for success, or {errorBody: {error: 'CODE', message}} to simulate the
+    // Edge Function's structured non-2xx response (see youtube-metadata/index.ts).
+    _setFunctionHandler(handler) {
+      functionHandler = handler;
     }
   };
 }

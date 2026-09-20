@@ -1,6 +1,7 @@
 import './styles/main.css';
 import './styles/layout.css';
 import './styles/components.css';
+import './styles/tutorial-link.css';
 import { initApp } from './app.js';
 
 if (document.readyState === 'loading') {

@@ -23,9 +23,17 @@ import { initTheme, setThemePreference } from './modules/theme.js';
 import { getPhoto, getPhotos, getAlbum } from './modules/db.js';
 import { getSession, signInOwner } from './modules/supabase-client.js';
 import { renderAuthView } from './ui/auth-view.js';
+import { getTutorialCreators, getPhotosByCreator } from './modules/tutorial-link.js';
+import {
+  renderCreatorList,
+  attachCreatorListEvents,
+  renderCreatorBackLink,
+  renderCreatorHeading
+} from './ui/tutorials-tab.js';
 
 let currentSection = 'home';
 let currentAlbumId = null;
+let currentCreatorId = null;
 
 export async function initApp() {
   try {
@@ -99,6 +107,7 @@ function buildShell() {
 async function navigateTo(section) {
   currentSection = section;
   currentAlbumId = null;
+  currentCreatorId = null;
 
   const app = document.getElementById('app');
   const oldNav = app.querySelector('.app-nav');
@@ -128,6 +137,8 @@ async function renderSection(section) {
       await renderAlbumsSection(main);
     } else if (section === 'favorites') {
       await renderFavoritesSection(main);
+    } else if (section === 'tutorials') {
+      await renderTutorialsSection(main);
     } else if (section === 'settings') {
       await renderSettingsSection(main);
     }
@@ -164,6 +175,39 @@ async function renderFavoritesSection(main) {
   const gallery = renderPhotoGallery(photos, { emptyStateVariant: 'favorites' });
   attachPhotoGalleryEvents(gallery, handleToggleFavorite, handleDeletePhotoFromGallery, handleOpenPhoto);
   attachEmptyStateBridge(gallery);
+  main.appendChild(gallery);
+}
+
+async function renderTutorialsSection(main) {
+  currentCreatorId = null;
+  const creators = await getTutorialCreators();
+  const view = renderCreatorList(creators);
+  attachCreatorListEvents(view, (channelId) => renderCreatorDetail(main, channelId, creators));
+
+  view.addEventListener('click', (event) => {
+    if (event.target.closest('[data-action="browse-photos"]')) {
+      navigateTo('photos');
+    }
+  });
+
+  main.appendChild(view);
+}
+
+async function renderCreatorDetail(main, channelId, creators) {
+  currentCreatorId = channelId;
+  const creator = creators.find((c) => c.channelId === channelId);
+  if (!creator) return;
+
+  main.innerHTML = '';
+
+  const backLink = renderCreatorBackLink();
+  backLink.addEventListener('click', () => renderTutorialsSection(main));
+  main.appendChild(backLink);
+  main.appendChild(renderCreatorHeading(creator));
+
+  const photos = await getPhotosByCreator(channelId);
+  const gallery = renderPhotoGallery(photos, { emptyStateVariant: 'photos' });
+  attachPhotoGalleryEvents(gallery, handleToggleFavorite, handleDeletePhotoFromGallery, handleOpenPhoto);
   main.appendChild(gallery);
 }
 

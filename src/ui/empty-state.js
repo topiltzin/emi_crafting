@@ -19,6 +19,13 @@ const VARIANTS = {
     message: 'Tap the heart on any photo to add it to your favorites.',
     ctaLabel: 'Browse My Photos',
     ctaAction: 'browse-photos'
+  },
+  tutorials: {
+    icon: '🎬',
+    heading: 'No tutorial links yet!',
+    message: 'Open any photo and add a YouTube tutorial link to see it grouped by creator here.',
+    ctaLabel: 'Browse My Photos',
+    ctaAction: 'browse-photos'
   }
 };
 

@@ -6,7 +6,7 @@ describe('renderNav icons', () => {
     const nav = renderNav('home');
     const links = nav.querySelectorAll('.app-nav-link');
 
-    expect(links).toHaveLength(5);
+    expect(links).toHaveLength(6);
     links.forEach((link) => {
       const iconSpan = link.querySelector('span[aria-hidden="true"]');
       expect(iconSpan).not.toBeNull();
