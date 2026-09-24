@@ -29,7 +29,7 @@ export function renderNav(activeSection) {
 
   const logo = document.createElement('div');
   logo.className = 'app-nav-logo';
-  logo.innerHTML = '<span aria-hidden="true">🧵</span> Emi\'s Craft House';
+  logo.innerHTML = '<span class="app-nav-logo-mark" aria-hidden="true">🧵</span> Emi\'s Craft House';
 
   const menuToggle = document.createElement('button');
   menuToggle.type = 'button';
@@ -50,7 +50,7 @@ export function renderNav(activeSection) {
     if (section.id === activeSection) {
       link.setAttribute('aria-current', 'page');
     }
-    link.innerHTML = `<span aria-hidden="true">${section.icon}</span> ${section.label}`;
+    link.innerHTML = `<span class="app-nav-icon" aria-hidden="true">${section.icon}</span> ${section.label}`;
     item.appendChild(link);
     list.appendChild(item);
   });

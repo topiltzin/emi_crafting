@@ -13,7 +13,7 @@ import { createNamedAlbum } from './modules/album.js';
 import { renderAlbumGrid, attachAlbumGridEvents, attachAlbumDragDrop } from './ui/album-grid.js';
 import { renderAlbumView, attachAlbumViewEvents } from './ui/album-view.js';
 import { renderNav, attachNavEvents } from './ui/nav.js';
-import { renderHero, attachHeroEvents } from './ui/hero.js';
+import { renderHero, attachHeroEvents, setHeroPhotos } from './ui/hero.js';
 import { renderPhotoGallery, attachPhotoGalleryEvents } from './ui/photo-gallery.js';
 import { openPhotoViewer } from './ui/photo-viewer.js';
 import { renderUploadZone, attachUploadZoneEvents } from './ui/upload-zone.js';
@@ -164,6 +164,7 @@ async function renderHomeSection(target) {
   target().appendChild(hero);
 
   const photos = await getAllPhotos();
+  setHeroPhotos(hero, photos);
   const gallery = renderPhotoGallery(photos, { emptyStateVariant: 'photos' });
   attachPhotoGalleryEvents(gallery, handleToggleFavorite, handleDeletePhotoFromGallery, handleOpenPhoto);
   attachEmptyStateBridge(gallery);

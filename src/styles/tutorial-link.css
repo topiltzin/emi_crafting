@@ -11,8 +11,9 @@
   align-items: center;
   justify-content: center;
   border-radius: 50%;
-  background-color: rgba(255, 255, 255, 0.9);
-  box-shadow: var(--shadow-sm);
+  background-color: #ffd23f;
+  border: 2px solid #2b2250;
+  box-shadow: 2px 2px 0 0 #2b2250;
   font-size: 0.9rem;
   z-index: 1;
 }
@@ -31,6 +32,7 @@
   gap: var(--spacing-sm);
   padding: var(--spacing-md);
   background-color: var(--color-light-pink);
+  border: 2px dashed var(--line);
   border-radius: var(--border-radius);
 }
 
@@ -46,7 +48,9 @@
   gap: var(--spacing-sm);
   padding: var(--spacing-md);
   background-color: var(--color-light-purple);
+  border: 2px solid var(--line);
   border-radius: var(--border-radius);
+  box-shadow: var(--shadow-sm);
 }
 
 .tutorial-card--pending {
@@ -151,7 +155,7 @@
 .tutorial-link-input {
   width: 100%;
   padding: var(--spacing-sm) var(--spacing-md);
-  border: 2px solid var(--color-border);
+  border: var(--border-width) solid var(--line);
   border-radius: var(--border-radius);
   font-size: var(--font-size-base);
   font-family: var(--font-body);
@@ -210,23 +214,31 @@
 /* Tutorials tab (US3) */
 .tutorials-creator-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: var(--spacing-md);
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: var(--spacing-lg);
 }
 
 .tutorial-creator-card {
   display: flex;
   align-items: center;
-  gap: var(--spacing-sm);
+  justify-content: flex-start;
+  gap: var(--spacing-md);
   padding: var(--spacing-md);
   background-color: var(--color-white);
+  border: var(--border-width) solid var(--line);
   border-radius: var(--border-radius-lg);
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow-md);
   cursor: pointer;
-  transition: box-shadow var(--transition-base);
+  transition: box-shadow var(--transition-fast), transform var(--transition-base);
   text-align: left;
-  border: none;
   width: 100%;
+  white-space: normal;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .tutorial-creator-card:hover {
+    transform: translate(-2px, -3px) rotate(-1deg);
+  }
 }
 
 .tutorial-creator-card:hover,
@@ -240,18 +252,20 @@
 }
 
 .tutorial-creator-thumb {
-  width: 48px;
-  height: 48px;
+  width: 56px;
+  height: 56px;
   border-radius: 50%;
+  border: var(--border-width) solid var(--line);
   object-fit: cover;
-  background-color: var(--color-light-purple);
+  background-color: var(--candy-mint);
   flex-shrink: 0;
 }
 
 .tutorial-creator-name {
   margin: 0;
-  font-weight: 700;
-  font-size: var(--font-size-base);
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: var(--font-size-lg);
   color: var(--color-text);
 }
 
