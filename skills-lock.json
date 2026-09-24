@@ -1,6 +1,12 @@
 {
   "version": 1,
   "skills": {
+    "graphic-designer": {
+      "source": "charlie947/social-media-skills",
+      "sourceType": "github",
+      "skillPath": "skills/graphic-designer/SKILL.md",
+      "computedHash": "5a67963bbc1217fa7c3b4461210d1a68b0d5ac13333b6b7417f02de9c608ff7e"
+    },
     "ui-ux-pro-max": {
       "source": "nextlevelbuilder/ui-ux-pro-max-skill",
       "sourceType": "github",
