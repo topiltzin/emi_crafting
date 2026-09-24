@@ -52,7 +52,10 @@ export function openPhotoViewer(photo) {
 
     tutorialErrorEl.hidden = true;
     try {
-      const { photo: updatedPhoto } = await saveTutorialLink(currentPhoto.id, result.url);
+      const { photo: updatedPhoto } = await saveTutorialLink(currentPhoto.id, result.url, {
+        metadata: result.metadata,
+        useFallback: result.useFallback
+      });
       currentPhoto = updatedPhoto;
       renderTutorial();
     } catch (error) {

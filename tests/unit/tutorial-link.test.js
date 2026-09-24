@@ -143,6 +143,54 @@ describe('saveTutorialLink / deleteTutorialLink', () => {
     expect(reloaded.tutorial_link).toBeNull();
   });
 
+  it('reuses metadata the dialog already fetched instead of calling the API again', async () => {
+    const photo = await seedPhoto();
+    let calls = 0;
+    fakeClient._setFunctionHandler(() => {
+      calls += 1;
+      return { data: VALID_LINK };
+    });
+
+    const { metadataReady } = await saveTutorialLink(photo.id, VALID_LINK.url, { metadata: VALID_LINK });
+
+    expect(calls).toBe(0);
+    expect(metadataReady).toBe(true);
+  });
+
+  it('saves a placeholder without fetching when the user chose "save anyway"', async () => {
+    const photo = await seedPhoto();
+    fakeClient._setFunctionHandler(() => ({
+      errorBody: { error: 'AUTH_FAILED', message: 'YouTube API key is invalid or expired.' }
+    }));
+
+    const { photo: updated, metadataReady } = await saveTutorialLink(photo.id, VALID_LINK.url, {
+      useFallback: true
+    });
+
+    expect(metadataReady).toBe(false);
+    expect(updated.tutorial_link.videoId).toBe('dQw4w9WgXcQ');
+  });
+
+  it('adds https:// to a URL pasted without a scheme so the Watch link is absolute', async () => {
+    const photo = await seedPhoto();
+
+    const { photo: updated } = await saveTutorialLink(photo.id, 'youtube.com/watch?v=dQw4w9WgXcQ', {
+      metadata: VALID_LINK
+    });
+
+    expect(updated.tutorial_link.url).toBe('https://youtube.com/watch?v=dQw4w9WgXcQ');
+  });
+
+  it('stores an unknown duration for live streams (duration 0) instead of rejecting the link', async () => {
+    const photo = await seedPhoto();
+
+    const { photo: updated } = await saveTutorialLink(photo.id, VALID_LINK.url, {
+      metadata: { ...VALID_LINK, duration: 0 }
+    });
+
+    expect(updated.tutorial_link.duration).toBeNull();
+  });
+
   it('removes the tutorial link on delete', async () => {
     const photo = await seedPhoto();
     fakeClient._setFunctionHandler(() => ({ data: VALID_LINK }));

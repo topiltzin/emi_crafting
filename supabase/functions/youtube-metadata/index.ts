@@ -156,7 +156,8 @@ Deno.serve(async (req) => {
     creator: (item.snippet?.channelTitle || 'Unknown').slice(0, 255),
     channelId: item.snippet?.channelId || null,
     thumbnail,
-    duration: parseIsoDuration(item.contentDetails?.duration)
+    // Live streams report "P0D" -> 0; the client treats a missing duration as unknown.
+    duration: parseIsoDuration(item.contentDetails?.duration) || null
   });
 });
 

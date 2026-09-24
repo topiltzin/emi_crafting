@@ -34,6 +34,9 @@ import {
 let currentSection = 'home';
 let currentAlbumId = null;
 let currentCreatorId = null;
+// Incremented on every full re-render of <main>. An async render that finishes after a newer one
+// started must not touch the DOM, or it would append stale content / remove nodes that are gone.
+let renderToken = 0;
 
 export async function initApp() {
   try {
@@ -119,6 +122,7 @@ async function navigateTo(section) {
 }
 
 async function renderSection(section) {
+  const token = ++renderToken;
   const app = document.getElementById('app');
   const main = app.querySelector('main');
   main.innerHTML = '';
@@ -128,61 +132,67 @@ async function renderSection(section) {
   loading.innerHTML = '<div class="spinner"></div>';
   main.appendChild(loading);
 
+  // A section appends into <main> after awaiting data; if a newer render started meanwhile, it
+  // gets a detached stand-in so the stale content never reaches the page.
+  const target = () => (token === renderToken ? main : document.createElement('div'));
   try {
     if (section === 'home') {
-      await renderHomeSection(main);
+      await renderHomeSection(target);
     } else if (section === 'photos') {
-      await renderPhotosSection(main);
+      await renderPhotosSection(target);
     } else if (section === 'albums') {
-      await renderAlbumsSection(main);
+      await renderAlbumsSection(target);
     } else if (section === 'favorites') {
-      await renderFavoritesSection(main);
+      await renderFavoritesSection(target);
     } else if (section === 'tutorials') {
-      await renderTutorialsSection(main);
+      await renderTutorialsSection(target);
     } else if (section === 'settings') {
-      await renderSettingsSection(main);
+      await renderSettingsSection(target);
     }
-    main.removeChild(loading);
+    loading.remove();
   } catch (error) {
+    loading.remove();
+    if (token !== renderToken) return;
     console.error(`Failed to load section ${section}:`, error);
-    main.removeChild(loading);
     showError(describeError(error, 'Failed to load'));
   }
 }
 
-async function renderHomeSection(main) {
+async function renderHomeSection(target) {
   const hero = renderHero();
   attachHeroEvents(hero, handleAddPhotosEntry, handleCreateAlbum);
-  main.appendChild(hero);
+  target().appendChild(hero);
 
   const photos = await getAllPhotos();
   const gallery = renderPhotoGallery(photos, { emptyStateVariant: 'photos' });
   attachPhotoGalleryEvents(gallery, handleToggleFavorite, handleDeletePhotoFromGallery, handleOpenPhoto);
   attachEmptyStateBridge(gallery);
-  main.appendChild(gallery);
+  target().appendChild(gallery);
 }
 
-async function renderPhotosSection(main) {
+async function renderPhotosSection(target) {
   const photos = await getAllPhotos();
   const gallery = renderPhotoGallery(photos, { emptyStateVariant: 'photos' });
   attachPhotoGalleryEvents(gallery, handleToggleFavorite, handleDeletePhotoFromGallery, handleOpenPhoto);
   attachEmptyStateBridge(gallery);
-  main.appendChild(gallery);
+  target().appendChild(gallery);
 }
 
-async function renderFavoritesSection(main) {
+async function renderFavoritesSection(target) {
   const photos = await getAllPhotos({ favoritesOnly: true });
   const gallery = renderPhotoGallery(photos, { emptyStateVariant: 'favorites' });
   attachPhotoGalleryEvents(gallery, handleToggleFavorite, handleDeletePhotoFromGallery, handleOpenPhoto);
   attachEmptyStateBridge(gallery);
-  main.appendChild(gallery);
+  target().appendChild(gallery);
 }
 
-async function renderTutorialsSection(main) {
+async function renderTutorialsSection(target) {
   currentCreatorId = null;
   const creators = await getTutorialCreators();
   const view = renderCreatorList(creators);
-  attachCreatorListEvents(view, (channelId) => renderCreatorDetail(main, channelId, creators));
+  attachCreatorListEvents(view, (channelId) =>
+    renderCreatorDetail(document.querySelector('#app main'), channelId, creators)
+  );
 
   view.addEventListener('click', (event) => {
     if (event.target.closest('[data-action="browse-photos"]')) {
@@ -190,7 +200,7 @@ async function renderTutorialsSection(main) {
     }
   });
 
-  main.appendChild(view);
+  target().appendChild(view);
 }
 
 async function renderCreatorDetail(main, channelId, creators) {
@@ -198,20 +208,30 @@ async function renderCreatorDetail(main, channelId, creators) {
   const creator = creators.find((c) => c.channelId === channelId);
   if (!creator) return;
 
+  const token = ++renderToken;
   main.innerHTML = '';
 
   const backLink = renderCreatorBackLink();
-  backLink.addEventListener('click', () => renderTutorialsSection(main));
+  backLink.addEventListener('click', () => renderSection('tutorials'));
   main.appendChild(backLink);
   main.appendChild(renderCreatorHeading(creator));
 
-  const photos = await getPhotosByCreator(channelId);
+  let photos;
+  try {
+    photos = await getPhotosByCreator(channelId);
+  } catch (error) {
+    if (token !== renderToken) return;
+    console.error('Failed to load creator photos:', error);
+    showError(describeError(error, 'Failed to load'));
+    return;
+  }
+  if (token !== renderToken) return;
   const gallery = renderPhotoGallery(photos, { emptyStateVariant: 'photos' });
   attachPhotoGalleryEvents(gallery, handleToggleFavorite, handleDeletePhotoFromGallery, handleOpenPhoto);
   main.appendChild(gallery);
 }
 
-async function renderSettingsSection(main) {
+async function renderSettingsSection(target) {
   const { renderSettingsView, attachSettingsViewEvents } = await import('./ui/settings-view.js');
   const { version: appVersion } = await import('../package.json');
   const albums = await getAlbums();
@@ -223,10 +243,10 @@ async function renderSettingsSection(main) {
     appVersion
   });
   attachSettingsViewEvents(view, (theme) => setThemePreference(theme));
-  main.appendChild(view);
+  target().appendChild(view);
 }
 
-async function renderAlbumsSection(main) {
+async function renderAlbumsSection(target) {
   const albums = await getAlbums();
 
   const toolbar = document.createElement('div');
@@ -236,10 +256,10 @@ async function renderAlbumsSection(main) {
   uploadBtn.textContent = '+ Add Photos';
   uploadBtn.addEventListener('click', handleAddPhotosEntry);
   toolbar.appendChild(uploadBtn);
-  main.appendChild(toolbar);
+  target().appendChild(toolbar);
 
   const grid = renderAlbumGrid(albums);
-  main.appendChild(grid);
+  target().appendChild(grid);
 
   attachAlbumGridEvents(grid, handleViewAlbum, handleDeleteAlbum, handleEditAlbum);
   attachAlbumDragDrop(grid, handleReorderAlbums);
@@ -253,6 +273,7 @@ async function renderAlbumsSection(main) {
 
 async function renderAlbumDetail(albumId) {
   currentAlbumId = albumId;
+  const token = ++renderToken;
   const app = document.getElementById('app');
   const main = app.querySelector('main');
   main.innerHTML = '';
@@ -269,7 +290,8 @@ async function renderAlbumDetail(albumId) {
     }
 
     const photos = await getPhotos(albumId);
-    main.removeChild(loading);
+    if (token !== renderToken) return;
+    loading.remove();
 
     const view = renderAlbumView(album, photos);
     main.appendChild(view);
@@ -279,8 +301,9 @@ async function renderAlbumDetail(albumId) {
     );
     attachPhotoGalleryEvents(view, handleToggleFavorite, null, handleOpenPhoto);
   } catch (error) {
+    if (token !== renderToken) return;
     console.error('Failed to load album:', error);
-    main.removeChild(loading);
+    loading.remove();
     showError(describeError(error, 'Failed to load album'));
   }
 }
@@ -348,10 +371,9 @@ async function handleUploadPhotos(files) {
 
     if (result.errors.length > 0) {
       status.className = 'alert alert-error';
-      status.innerHTML = `
-        Uploaded ${result.uploaded.length} photos.
-        Failed: ${result.errors.map((e) => e.filename).join(', ')}
-      `;
+      status.textContent =
+        `Uploaded ${result.uploaded.length} photos. ` +
+        `Failed: ${result.errors.map((e) => e.filename).join(', ')}`;
     } else {
       status.className = 'alert alert-success';
       status.textContent = `Successfully uploaded ${result.uploaded.length} photo${result.uploaded.length !== 1 ? 's' : ''}!`;
@@ -402,7 +424,13 @@ function handleAddPhotos() {
 }
 
 async function handleDeletePhoto(photoId) {
-  await deletePhoto(photoId, false);
+  try {
+    await deletePhoto(photoId, false);
+  } catch (error) {
+    console.error('Delete photo failed:', error);
+    showError(describeError(error, 'Failed to delete photo'));
+    return;
+  }
 
   if (currentAlbumId) {
     await renderAlbumDetail(currentAlbumId);
@@ -410,7 +438,13 @@ async function handleDeletePhoto(photoId) {
 }
 
 async function handleDeletePhotoFromGallery(photoId) {
-  await deletePhoto(photoId, false);
+  try {
+    await deletePhoto(photoId, false);
+  } catch (error) {
+    console.error('Delete photo failed:', error);
+    showError(describeError(error, 'Failed to delete photo'));
+    return;
+  }
   await renderSection(currentSection);
 }
 
@@ -519,7 +553,7 @@ function showError(message) {
   if (main) {
     main.insertBefore(error, main.firstChild);
   } else {
-    app.innerHTML = `<div class="alert alert-error">${message}</div>`;
+    app.replaceChildren(error);
   }
 
   setTimeout(() => {

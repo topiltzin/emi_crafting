@@ -57,28 +57,51 @@ export function trackTutorialEvent(name, detail = {}) {
   }
 }
 
+// Users may paste "youtube.com/watch?v=..." without a scheme; stored as-is it would become a
+// relative href on the Watch link. extractVideoId() already accepted it, so just add https://.
+function normalizeYoutubeUrl(url) {
+  const trimmed = url.trim();
+  return trimmed.includes('://') ? trimmed : `https://${trimmed}`;
+}
+
+// YouTube reports live streams as "P0D" (parsed to 0) and nothing enforces our 12h cap, so an
+// out-of-range duration is treated as unknown rather than rejecting the user's link.
+function normalizeDuration(duration) {
+  return typeof duration === 'number' && duration > 0 && duration <= MAX_DURATION_SECONDS ? duration : null;
+}
+
 /**
  * Adds or replaces the tutorial link on a photo. Fetches metadata for the URL; if the fetch
  * fails after retries, saves a placeholder so the user's URL isn't lost (research.md fallback).
  * @param {string} photoId
  * @param {string} youtubeUrl
+ * @param {{metadata?: object|null, useFallback?: boolean}} [options] metadata the caller already
+ *   fetched (e.g. the link dialog's preview), or useFallback when the user chose "save anyway" —
+ *   either way we skip a second, quota-consuming fetch.
  * @returns {Promise<{photo: object, metadataReady: boolean}>}
  */
-export async function saveTutorialLink(photoId, youtubeUrl) {
+export async function saveTutorialLink(photoId, youtubeUrl, { metadata = null, useFallback = false } = {}) {
+  const url = normalizeYoutubeUrl(youtubeUrl);
   let tutorialLink;
   let metadataReady = true;
 
-  try {
-    const metadata = await fetchYoutubeMetadata(youtubeUrl);
-    tutorialLink = { ...metadata, url: youtubeUrl, addedAt: new Date().toISOString() };
-  } catch (error) {
-    if (error instanceof YoutubeApiError && (error.code === 'FETCH_TIMEOUT' || error.code === 'QUOTA_EXCEEDED')) {
-      tutorialLink = buildFallbackTutorialLink(youtubeUrl);
-      metadataReady = false;
-    } else {
-      throw error;
+  if (useFallback) {
+    tutorialLink = buildFallbackTutorialLink(url);
+    metadataReady = false;
+  } else {
+    try {
+      const resolved = metadata || (await fetchYoutubeMetadata(url));
+      tutorialLink = { ...resolved, url, addedAt: new Date().toISOString() };
+    } catch (error) {
+      if (error instanceof YoutubeApiError && (error.code === 'FETCH_TIMEOUT' || error.code === 'QUOTA_EXCEEDED')) {
+        tutorialLink = buildFallbackTutorialLink(url);
+        metadataReady = false;
+      } else {
+        throw error;
+      }
     }
   }
+  tutorialLink.duration = normalizeDuration(tutorialLink.duration);
 
   validateTutorialLink(tutorialLink);
   const photo = await updatePhotoTutorialLink(photoId, tutorialLink);
