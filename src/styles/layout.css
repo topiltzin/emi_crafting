@@ -121,6 +121,12 @@ main {
   font-size: 1.5rem;
 }
 
+.hero-decor span:nth-child(1) { top: 10%; left: 8%; }
+.hero-decor span:nth-child(2) { top: 20%; right: 10%; }
+.hero-decor span:nth-child(3) { bottom: 15%; left: 15%; }
+.hero-decor span:nth-child(4) { bottom: 20%; right: 18%; }
+.hero-decor span:nth-child(5) { top: 50%; left: 3%; }
+
 /* Grid Layout */
 
 .grid {
@@ -311,6 +317,19 @@ main {
 
   .hero {
     padding: var(--spacing-lg) var(--spacing-md);
+  }
+
+  /* On narrow screens the content spans the full hero width, so the scattered decor would sit
+     on top of the title/buttons. Keep just two small accents tucked into the top corners. */
+  .hero-decor span {
+    font-size: 1rem;
+  }
+
+  .hero-decor span:nth-child(1) { top: 8px; left: 10px; }
+  .hero-decor span:nth-child(2) { top: 8px; right: 10px; }
+
+  .hero-decor span:nth-child(n + 3) {
+    display: none;
   }
 }
 

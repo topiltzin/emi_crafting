@@ -11,13 +11,15 @@
   --color-background: #fff7fc;
   --color-text: #3b2850;
   --color-text-light: #7c6a8f;
+  /* Text on tinted pills (light-purple backgrounds); darker than --color-secondary for AA contrast */
+  --color-on-tint: #6d28d9;
 
   --color-light-pink: #fce7f3;
   --color-light-purple: #ede9fe;
   --color-peach: #ffe8d6;
   --color-white: #ffffff;
 
-  --gradient-primary: linear-gradient(135deg, #ec4899 0%, #8b5cf6 100%);
+  --gradient-primary: linear-gradient(135deg, #db2777 0%, #7c3aed 100%);
   --gradient-soft: linear-gradient(135deg, #fce7f3 0%, #ede9fe 100%);
 
   --spacing-xs: 0.25rem;
@@ -63,6 +65,7 @@
     --color-background: #241a35;
     --color-text: #f3e8ff;
     --color-text-light: #c9b8dd;
+    --color-on-tint: #c4b5fd;
     --color-light-pink: #3a2340;
     --color-light-purple: #2f2350;
     --color-peach: #3a2c28;
@@ -88,6 +91,7 @@
   --color-background: #241a35;
   --color-text: #f3e8ff;
   --color-text-light: #c9b8dd;
+  --color-on-tint: #c4b5fd;
   --color-light-pink: #3a2340;
   --color-light-purple: #2f2350;
   --color-peach: #3a2c28;
@@ -101,12 +105,11 @@
   box-sizing: border-box;
 }
 
-html,
+/* Let the window (not <body>) be the scroll container: a height-capped, overflow-hidden body
+   becomes its own scroller, which breaks mobile address-bar collapse, pull-to-refresh and scroll
+   restoration. `clip` stops sideways overflow without creating a scroll container. */
 body {
-  height: 100%;
-  width: 100%;
-  max-width: 100%;
-  overflow-x: hidden;
+  overflow-x: clip;
 }
 
 body {

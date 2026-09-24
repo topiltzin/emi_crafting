@@ -97,7 +97,7 @@
   display: inline-block;
   font-size: var(--font-size-sm);
   font-weight: 700;
-  color: var(--color-secondary);
+  color: var(--color-on-tint);
   background-color: var(--color-light-purple);
   border-radius: var(--border-radius-full);
   padding: 2px var(--spacing-sm);
@@ -275,7 +275,7 @@
 .photo-card-date {
   font-size: var(--font-size-sm);
   font-weight: 700;
-  color: var(--color-secondary);
+  color: var(--color-on-tint);
   background-color: var(--color-light-purple);
   border-radius: var(--border-radius-full);
   padding: 2px var(--spacing-sm);

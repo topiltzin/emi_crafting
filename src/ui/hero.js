@@ -7,11 +7,11 @@ export function renderHero() {
   decor.className = 'hero-decor';
   decor.setAttribute('aria-hidden', 'true');
   decor.innerHTML = `
-    <span style="top:10%; left:8%;">✨</span>
-    <span style="top:20%; right:10%;">🌸</span>
-    <span style="bottom:15%; left:15%;">⭐</span>
-    <span style="bottom:20%; right:18%;">💗</span>
-    <span style="top:50%; left:3%;">🌟</span>
+    <span>✨</span>
+    <span>🌸</span>
+    <span>⭐</span>
+    <span>💗</span>
+    <span>🌟</span>
   `;
 
   const content = document.createElement('div');
