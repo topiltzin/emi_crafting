@@ -4,8 +4,9 @@
 // without a network call or a live Supabase project.
 //
 // Not a full Postgrest/GoTrue/Storage reimplementation — only the operations db.js issues:
-// select/insert/update/delete with eq/is/in filters, order, range, single/maybeSingle, and
-// a trivial Storage bucket (upload/remove/createSignedUrl) and Auth (getSession/signIn).
+// select (incl. {count, head})/insert/update/delete with eq/is/in/not filters (eq accepts a
+// `col->>key` JSON path), order, range, single/maybeSingle, and a trivial Storage bucket
+// (upload/remove/createSignedUrl(s)) and Auth (getSession/signIn).
 
 // A strictly-increasing clock (rather than `new Date().toISOString()`) so that rows created
 // in the same test — which can easily land in the same millisecond — still sort deterministically
@@ -31,11 +32,21 @@ function defaultsFor(table) {
   return {};
 }
 
+// Resolves plain columns and PostgREST `col->>key` JSON text paths.
+function readColumn(row, col) {
+  const [column, jsonKey] = col.split('->>');
+  const value = row[column];
+  if (jsonKey === undefined) return value;
+  return value && value[jsonKey] != null ? String(value[jsonKey]) : null;
+}
+
 function matchFilters(row, filters) {
   return filters.every((filter) => {
-    if (filter.type === 'eq') return row[filter.col] === filter.val;
-    if (filter.type === 'is') return (row[filter.col] ?? null) === filter.val;
-    if (filter.type === 'in') return filter.vals.includes(row[filter.col]);
+    const value = readColumn(row, filter.col);
+    if (filter.type === 'eq') return value === filter.val;
+    if (filter.type === 'is') return (value ?? null) === filter.val;
+    if (filter.type === 'not-is') return (value ?? null) !== filter.val;
+    if (filter.type === 'in') return filter.vals.includes(value);
     return true;
   });
 }
@@ -83,9 +94,11 @@ export function createFakeSupabaseClient({ ownerId = 'owner-1', networkDown = fa
     let rangeSpec = null;
     let wantSingle = false;
     let wantMaybeSingle = false;
+    let countOnly = false;
 
     const builder = {
-      select() {
+      select(_columns, opts = {}) {
+        countOnly = opts.head === true && opts.count === 'exact';
         return builder;
       },
       insert(row) {
@@ -108,6 +121,11 @@ export function createFakeSupabaseClient({ ownerId = 'owner-1', networkDown = fa
       },
       is(col, val) {
         filters.push({ type: 'is', col, val });
+        return builder;
+      },
+      not(col, operator, val) {
+        if (operator !== 'is') throw new Error(`fake-supabase: unsupported not() operator ${operator}`);
+        filters.push({ type: 'not-is', col, val });
         return builder;
       },
       in(col, vals) {
@@ -180,6 +198,10 @@ export function createFakeSupabaseClient({ ownerId = 'owner-1', networkDown = fa
         return finalize(matched.map((row) => ({ ...row })));
       }
 
+      if (countOnly) {
+        return { data: null, count: matched.length, error: null };
+      }
+
       matched = applyOrder(matched, orders);
       if (rangeSpec) {
         matched = matched.slice(rangeSpec.from, rangeSpec.to + 1);
@@ -242,6 +264,19 @@ export function createFakeSupabaseClient({ ownerId = 'owner-1', networkDown = fa
             return { data: null, error: { message: `Object not found: ${path}` } };
           }
           return { data: { signedUrl: `https://fake.local/storage/${bucket}/${path}` }, error: null };
+        },
+        async createSignedUrls(paths, _ttlSeconds) {
+          try {
+            checkNetwork();
+          } catch (error) {
+            return { data: null, error };
+          }
+          const data = paths.map((path) =>
+            storageObjects.has(`${bucket}/${path}`)
+              ? { path, signedUrl: `https://fake.local/storage/${bucket}/${path}`, error: null }
+              : { path, signedUrl: null, error: `Object not found: ${path}` }
+          );
+          return { data, error: null };
         }
       };
     }

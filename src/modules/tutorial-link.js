@@ -5,7 +5,7 @@
 // Data model: specs/008-craft-tutorial-links/data-model.md
 
 import { fetchYoutubeMetadata, buildFallbackTutorialLink, YoutubeApiError } from './youtube-client.js';
-import { updatePhotoTutorialLink, removePhotoTutorialLink, getAllPhotos } from './db.js';
+import { updatePhotoTutorialLink, removePhotoTutorialLink, getAllPhotos, getTutorialLinks } from './db.js';
 import { validationError } from './supabase-errors.js';
 
 const MAX_TITLE_LENGTH = 255;
@@ -127,11 +127,10 @@ export function trackTutorialViewed(photoId, videoId) {
  *   sorted by most recently linked first
  */
 export async function getTutorialCreators() {
-  const photos = await getAllPhotos({ limit: 100000 });
+  const links = await getTutorialLinks();
   const creators = new Map();
 
-  for (const photo of photos) {
-    const link = photo.tutorial_link;
+  for (const link of links) {
     if (!link || !link.channelId) continue;
 
     const existing = creators.get(link.channelId);
@@ -159,6 +158,5 @@ export async function getTutorialCreators() {
  */
 export async function getPhotosByCreator(channelId, options = {}) {
   const { favoritesOnly = false } = options;
-  const photos = await getAllPhotos({ limit: 100000, favoritesOnly });
-  return photos.filter((photo) => photo.tutorial_link && photo.tutorial_link.channelId === channelId);
+  return getAllPhotos({ limit: 100000, favoritesOnly, tutorialChannelId: channelId });
 }

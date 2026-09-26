@@ -14,7 +14,11 @@ import {
   getAllPhotos,
   deletePhoto,
   toggleFavorite,
-  getPhotoOriginalUrl
+  getPhotoOriginalUrl,
+  getAlbumByDate,
+  getAlbumDates,
+  countPhotos,
+  getTutorialLinks
 } from '../../src/modules/db.js';
 
 describe('Database Module (Supabase-backed)', () => {
@@ -491,6 +495,64 @@ describe('Database Module (Supabase-backed)', () => {
       fakeClient._setNetworkDown(true);
 
       await expect(getPhotoOriginalUrl(photo.storage_path)).rejects.toMatchObject({ code: 'network' });
+    });
+  });
+
+  describe('Lean queries', () => {
+    const photoData = (filename) => ({
+      filename,
+      file_size: 1024,
+      mime_type: 'image/jpeg',
+      photo_data_base64: btoa('data'),
+      thumbnail_base64: btoa('thumb')
+    });
+
+    it('getAlbumByDate finds only the live album for that date', async () => {
+      const album = await createAlbum('2026-09-14');
+      await createAlbum('2026-09-15');
+
+      expect((await getAlbumByDate('2026-09-14')).id).toBe(album.id);
+      expect(await getAlbumByDate('2026-01-01')).toBeNull();
+
+      await deleteAlbum(album.id);
+      expect(await getAlbumByDate('2026-09-14')).toBeNull();
+    });
+
+    it('getAlbumDates lists live album dates', async () => {
+      await createAlbum('2026-09-14');
+      const gone = await createAlbum('2026-09-15');
+      await deleteAlbum(gone.id);
+
+      expect(await getAlbumDates()).toEqual(['2026-09-14']);
+    });
+
+    it('countPhotos counts non-deleted photos without loading them', async () => {
+      const album = await createAlbum('2026-09-14');
+      await createPhoto(album.id, photoData('a.jpg'));
+      const b = await createPhoto(album.id, photoData('b.jpg'));
+      await deletePhoto(b.id);
+
+      expect(await countPhotos()).toBe(1);
+    });
+
+    it('getTutorialLinks returns only linked photos', async () => {
+      const album = await createAlbum('2026-09-14');
+      await createPhoto(album.id, photoData('a.jpg'));
+      const linked = await createPhoto(album.id, photoData('b.jpg'));
+      fakeClient._tables.photos.find((p) => p.id === linked.id).tutorial_link = { channelId: 'UC1' };
+
+      expect(await getTutorialLinks()).toEqual([{ channelId: 'UC1' }]);
+    });
+
+    it('updateAlbumOrder writes only albums whose position changed', async () => {
+      const a = await createAlbum('2026-09-10');
+      await createAlbum('2026-09-11');
+      await createAlbum('2026-09-12');
+      await updateAlbumOrder(a.id, 0); // normalizes positions 0..2
+      const before = fakeClient._tables.albums.map((row) => row.updated_at);
+
+      await updateAlbumOrder(a.id, 0); // no-op move
+      expect(fakeClient._tables.albums.map((row) => row.updated_at)).toEqual(before);
     });
   });
 });

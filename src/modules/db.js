@@ -1,7 +1,7 @@
 import { getSupabaseClient, getOwnerId } from './supabase-client.js';
 import { buildOriginalPhotoPath, buildThumbnailPhotoPath, PHOTOS_BUCKET } from './photo-storage-path.js';
-import { resolvePhotoUrl } from './photo-url.js';
-import { classifySupabaseError, validationError, throwClassified } from './supabase-errors.js';
+import { resolvePhotoUrl, resolvePhotoUrls } from './photo-url.js';
+import { validationError, throwClassified } from './supabase-errors.js';
 
 const ALBUM_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const ALLOWED_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
@@ -40,7 +40,7 @@ export async function createAlbum(albumDate, title = null) {
 
   if (error) throwClassified(error, 'Failed to create album');
 
-  return toAlbum(data);
+  return data;
 }
 
 export async function updateAlbum(albumId, { title } = {}) {
@@ -61,7 +61,7 @@ export async function updateAlbum(albumId, { title } = {}) {
 
   if (error) throwClassified(error, 'Failed to rename album');
 
-  return toAlbum(data);
+  return data;
 }
 
 export async function getAlbum(albumId) {
@@ -73,7 +73,7 @@ export async function getAlbum(albumId) {
     .maybeSingle();
 
   if (error) throwClassified(error, 'Failed to load album');
-  return data ? toAlbum(data) : null;
+  return data;
 }
 
 export async function getAlbums(sortByCustom = true) {
@@ -113,9 +113,36 @@ export async function getAlbums(sortByCustom = true) {
     }
   }
 
-  return Promise.all(
-    albums.map((album) => toAlbum(album, { coverThumbnailPath: coverByAlbum.get(album.id) || null }))
-  );
+  const urls = await signPaths([...coverByAlbum.values()], 'Failed to resolve album cover image');
+  return albums.map((album) => ({
+    ...album,
+    cover_thumbnail_url: urls.get(coverByAlbum.get(album.id)) || null
+  }));
+}
+
+// Lean lookups for upload/create paths: no cover query, no signed URLs.
+export async function getAlbumByDate(albumDate) {
+  const { data, error } = await getSupabaseClient()
+    .from('albums')
+    .select('*')
+    .eq('owner_id', getOwnerId())
+    .eq('album_date', albumDate)
+    .is('deleted_at', null)
+    .maybeSingle();
+
+  if (error) throwClassified(error, 'Failed to load album');
+  return data;
+}
+
+export async function getAlbumDates() {
+  const { data, error } = await getSupabaseClient()
+    .from('albums')
+    .select('album_date')
+    .eq('owner_id', getOwnerId())
+    .is('deleted_at', null);
+
+  if (error) throwClassified(error, 'Failed to load albums');
+  return (data || []).map((a) => a.album_date);
 }
 
 export async function deleteAlbum(albumId, hard = false) {
@@ -172,7 +199,7 @@ export async function updateAlbumOrder(albumId, newPosition) {
 
   const { data: albums, error } = await client
     .from('albums')
-    .select('id')
+    .select('id, position')
     .eq('owner_id', ownerId)
     .is('deleted_at', null)
     .order('position', { ascending: true, nullsFirst: false })
@@ -181,6 +208,7 @@ export async function updateAlbumOrder(albumId, newPosition) {
   if (error) throwClassified(error, 'Failed to load albums');
 
   const albumIds = (albums || []).map((a) => a.id);
+  const positionById = new Map((albums || []).map((a) => [a.id, a.position]));
   const total = albumIds.length;
 
   if (newPosition < 0 || newPosition >= total) {
@@ -195,14 +223,19 @@ export async function updateAlbumOrder(albumId, newPosition) {
   albumIds.splice(currentPosition, 1);
   albumIds.splice(newPosition, 0, albumId);
 
+  // Only rows whose position actually changed are written, and those writes run concurrently —
+  // a drag across a few slots touches a few rows instead of serially rewriting every album.
   const now = new Date().toISOString();
-  for (let i = 0; i < albumIds.length; i++) {
-    const { error: updateError } = await client
-      .from('albums')
-      .update({ position: i, updated_at: now })
-      .eq('id', albumIds[i]);
-    if (updateError) throwClassified(updateError, 'Failed to reorder albums');
-  }
+  const results = await Promise.all(
+    albumIds
+      .map((id, index) => ({ id, index }))
+      .filter(({ id, index }) => positionById.get(id) !== index)
+      .map(({ id, index }) =>
+        client.from('albums').update({ position: index, updated_at: now }).eq('id', id)
+      )
+  );
+  const failed = results.find((result) => result.error);
+  if (failed) throwClassified(failed.error, 'Failed to reorder albums');
 }
 
 // ----- Photos -----
@@ -309,16 +342,24 @@ export async function getPhotos(albumId, offset = 0, limit = 50) {
   if (error) throwClassified(error, 'Failed to load photos');
   if (!data || data.length === 0) return [];
 
-  return Promise.all(data.map((row) => toPhoto(row)));
+  return withThumbnailUrls(data);
 }
 
-export async function getAllPhotos({ favoritesOnly = false, offset = 0, limit = 50 } = {}) {
+export async function getAllPhotos({
+  favoritesOnly = false,
+  tutorialChannelId = null,
+  offset = 0,
+  limit = 50
+} = {}) {
   const ownerId = getOwnerId();
   const client = getSupabaseClient();
 
   let query = client.from('photos').select('*').eq('owner_id', ownerId).is('deleted_at', null);
   if (favoritesOnly) {
     query = query.eq('is_favorite', true);
+  }
+  if (tutorialChannelId) {
+    query = query.eq('tutorial_link->>channelId', tutorialChannelId);
   }
 
   query = query
@@ -339,24 +380,46 @@ export async function getAllPhotos({ favoritesOnly = false, offset = 0, limit = 
   if (albumsError) throwClassified(albumsError, 'Failed to load albums for photos');
 
   const albumById = new Map((albums || []).map((a) => [a.id, a]));
-  const visiblePhotos = photos.filter((p) => albumById.has(p.album_id));
+  const visiblePhotos = await withThumbnailUrls(photos.filter((p) => albumById.has(p.album_id)));
 
-  return Promise.all(
-    visiblePhotos.map(async (row) => {
-      const album = albumById.get(row.album_id);
-      const photo = await toPhoto(row);
-      photo.album_date = album.album_date;
-      photo.album_title = album.title;
-      return photo;
-    })
-  );
+  for (const photo of visiblePhotos) {
+    const album = albumById.get(photo.album_id);
+    photo.album_date = album.album_date;
+    photo.album_title = album.title;
+  }
+  return visiblePhotos;
+}
+
+// Head-only count: no rows transferred, no URLs signed.
+export async function countPhotos() {
+  const { count, error } = await getSupabaseClient()
+    .from('photos')
+    .select('id', { count: 'exact', head: true })
+    .eq('owner_id', getOwnerId())
+    .is('deleted_at', null);
+
+  if (error) throwClassified(error, 'Failed to count photos');
+  return count || 0;
+}
+
+// Just the tutorial_link column of linked photos — enough to aggregate creators without
+// loading every photo row and signing every thumbnail.
+export async function getTutorialLinks() {
+  const { data, error } = await getSupabaseClient()
+    .from('photos')
+    .select('tutorial_link')
+    .eq('owner_id', getOwnerId())
+    .is('deleted_at', null)
+    .not('tutorial_link', 'is', null);
+
+  if (error) throwClassified(error, 'Failed to load tutorial links');
+  return (data || []).map((row) => row.tutorial_link);
 }
 
 export async function deletePhoto(photoId, hard = false) {
   const client = getSupabaseClient();
 
-  const photo = await getPhoto(photoId);
-  if (!photo) throw validationError('Photo not found');
+  const photo = await getPhotoRow(photoId, 'album_id, storage_path, thumbnail_storage_path');
 
   if (hard) {
     const paths = [photo.storage_path, photo.thumbnail_storage_path].filter(Boolean);
@@ -381,16 +444,17 @@ export async function deletePhoto(photoId, hard = false) {
 export async function updatePhotoTutorialLink(photoId, tutorialLink) {
   const client = getSupabaseClient();
 
-  const photo = await getPhoto(photoId);
-  if (!photo) throw validationError('Photo not found');
+  await getPhotoRow(photoId, 'id');
 
-  const { error } = await client
+  const { data, error } = await client
     .from('photos')
     .update({ tutorial_link: tutorialLink, updated_at: new Date().toISOString() })
-    .eq('id', photoId);
+    .eq('id', photoId)
+    .select()
+    .single();
   if (error) throwClassified(error, 'Failed to save tutorial link');
 
-  return getPhoto(photoId);
+  return toPhoto(data);
 }
 
 export async function removePhotoTutorialLink(photoId) {
@@ -400,16 +464,17 @@ export async function removePhotoTutorialLink(photoId) {
 export async function toggleFavorite(photoId) {
   const client = getSupabaseClient();
 
-  const photo = await getPhoto(photoId);
-  if (!photo) throw validationError('Photo not found');
+  const photo = await getPhotoRow(photoId, 'is_favorite');
 
-  const { error } = await client
+  const { data, error } = await client
     .from('photos')
     .update({ is_favorite: !photo.is_favorite, updated_at: new Date().toISOString() })
-    .eq('id', photoId);
+    .eq('id', photoId)
+    .select()
+    .single();
   if (error) throwClassified(error, 'Failed to update favorite');
 
-  return getPhoto(photoId);
+  return toPhoto(data);
 }
 
 // ----- Helpers -----
@@ -442,16 +507,34 @@ function base64ToUint8Array(base64) {
   return bytes;
 }
 
-async function toAlbum(row, { coverThumbnailPath } = {}) {
-  const album = { ...row };
-  if (coverThumbnailPath !== undefined) {
-    try {
-      album.cover_thumbnail_url = coverThumbnailPath ? await resolvePhotoUrl(coverThumbnailPath) : null;
-    } catch (error) {
-      throwClassified(error, 'Failed to resolve album cover image');
-    }
+// Existence check + the few columns a mutation needs, without signing a thumbnail URL.
+async function getPhotoRow(photoId, columns) {
+  const { data, error } = await getSupabaseClient()
+    .from('photos')
+    .select(columns)
+    .eq('id', photoId)
+    .is('deleted_at', null)
+    .maybeSingle();
+
+  if (error) throwClassified(error, 'Failed to load photo');
+  if (!data) throw validationError('Photo not found');
+  return data;
+}
+
+async function signPaths(paths, contextMessage) {
+  try {
+    return await resolvePhotoUrls(paths);
+  } catch (error) {
+    throwClassified(error, contextMessage);
   }
-  return album;
+}
+
+async function withThumbnailUrls(rows) {
+  const urls = await signPaths(
+    rows.map((row) => row.thumbnail_storage_path),
+    'Failed to resolve photo thumbnail'
+  );
+  return rows.map((row) => ({ ...row, thumbnail_url: urls.get(row.thumbnail_storage_path) || null }));
 }
 
 async function toPhoto(row) {
@@ -465,7 +548,3 @@ async function toPhoto(row) {
   }
   return photo;
 }
-
-// Re-exported so callers that only need error classification (e.g. app.js) don't need a
-// separate import of supabase-errors.js.
-export { classifySupabaseError };

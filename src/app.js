@@ -1,7 +1,12 @@
 import {
   initDB,
+  getAlbum,
   getAlbums,
+  getAlbumDates,
+  getPhoto,
+  getPhotos,
   getAllPhotos,
+  countPhotos,
   deletePhoto,
   deleteAlbum,
   updateAlbum,
@@ -20,7 +25,6 @@ import { renderUploadZone, attachUploadZoneEvents } from './ui/upload-zone.js';
 import { openDialog } from './ui/dialog.js';
 import { showCreateAlbumDialog, showRenameAlbumDialog } from './ui/create-album-dialog.js';
 import { initTheme, setThemePreference } from './modules/theme.js';
-import { getPhoto, getPhotos, getAlbum } from './modules/db.js';
 import { getSession, signInOwner } from './modules/supabase-client.js';
 import { renderAuthView } from './ui/auth-view.js';
 import { getTutorialCreators, getPhotosByCreator } from './modules/tutorial-link.js';
@@ -123,14 +127,8 @@ async function navigateTo(section) {
 
 async function renderSection(section) {
   const token = ++renderToken;
-  const app = document.getElementById('app');
-  const main = app.querySelector('main');
-  main.innerHTML = '';
-
-  const loading = document.createElement('div');
-  loading.className = 'loading';
-  loading.innerHTML = '<div class="spinner"></div>';
-  main.appendChild(loading);
+  const main = getMain();
+  const loading = showLoading(main);
 
   // A section appends into <main> after awaiting data; if a newer render started meanwhile, it
   // gets a detached stand-in so the stale content never reaches the page.
@@ -163,28 +161,27 @@ async function renderHomeSection(target) {
   attachHeroEvents(hero, handleAddPhotosEntry, handleCreateAlbum);
   target().appendChild(hero);
 
-  const photos = await getAllPhotos();
-  setHeroPhotos(hero, photos);
-  const gallery = renderPhotoGallery(photos, { emptyStateVariant: 'photos' });
-  attachPhotoGalleryEvents(gallery, handleToggleFavorite, handleDeletePhotoFromGallery, handleOpenPhoto);
-  attachEmptyStateBridge(gallery);
-  target().appendChild(gallery);
+  // The gallery shows one page; the hero's "N crafts saved" needs the true total.
+  const [photos, total] = await Promise.all([getAllPhotos(), countPhotos()]);
+  setHeroPhotos(hero, photos, total);
+  target().appendChild(buildGallery(photos, 'photos'));
 }
 
 async function renderPhotosSection(target) {
   const photos = await getAllPhotos();
-  const gallery = renderPhotoGallery(photos, { emptyStateVariant: 'photos' });
-  attachPhotoGalleryEvents(gallery, handleToggleFavorite, handleDeletePhotoFromGallery, handleOpenPhoto);
-  attachEmptyStateBridge(gallery);
-  target().appendChild(gallery);
+  target().appendChild(buildGallery(photos, 'photos'));
 }
 
 async function renderFavoritesSection(target) {
   const photos = await getAllPhotos({ favoritesOnly: true });
-  const gallery = renderPhotoGallery(photos, { emptyStateVariant: 'favorites' });
-  attachPhotoGalleryEvents(gallery, handleToggleFavorite, handleDeletePhotoFromGallery, handleOpenPhoto);
+  target().appendChild(buildGallery(photos, 'favorites'));
+}
+
+function buildGallery(photos, emptyStateVariant) {
+  const gallery = renderPhotoGallery(photos, { emptyStateVariant });
+  attachPhotoGalleryEvents(gallery, handleToggleFavorite, handleDeletePhoto, handleOpenPhoto);
   attachEmptyStateBridge(gallery);
-  target().appendChild(gallery);
+  return gallery;
 }
 
 async function renderTutorialsSection(target) {
@@ -227,20 +224,17 @@ async function renderCreatorDetail(main, channelId, creators) {
     return;
   }
   if (token !== renderToken) return;
-  const gallery = renderPhotoGallery(photos, { emptyStateVariant: 'photos' });
-  attachPhotoGalleryEvents(gallery, handleToggleFavorite, handleDeletePhotoFromGallery, handleOpenPhoto);
-  main.appendChild(gallery);
+  main.appendChild(buildGallery(photos, 'photos'));
 }
 
 async function renderSettingsSection(target) {
   const { renderSettingsView, attachSettingsViewEvents } = await import('./ui/settings-view.js');
   const { version: appVersion } = await import('../package.json');
-  const albums = await getAlbums();
-  const photos = await getAllPhotos({ limit: 100000 });
+  const [photoCount, albumDates] = await Promise.all([countPhotos(), getAlbumDates()]);
 
   const view = renderSettingsView({
-    photoCount: photos.length,
-    albumCount: albums.length,
+    photoCount,
+    albumCount: albumDates.length,
     appVersion
   });
   attachSettingsViewEvents(view, (theme) => setThemePreference(theme));
@@ -275,14 +269,8 @@ async function renderAlbumsSection(target) {
 async function renderAlbumDetail(albumId) {
   currentAlbumId = albumId;
   const token = ++renderToken;
-  const app = document.getElementById('app');
-  const main = app.querySelector('main');
-  main.innerHTML = '';
-
-  const loading = document.createElement('div');
-  loading.className = 'loading';
-  loading.innerHTML = '<div class="spinner"></div>';
-  main.appendChild(loading);
+  const main = getMain();
+  const loading = showLoading(main);
 
   try {
     const album = await getAlbum(albumId);
@@ -360,24 +348,18 @@ async function handleUploadPhotos(files) {
   if (!files || files.length === 0) return;
 
   try {
-    const app = document.getElementById('app');
-    const main = app.querySelector('main');
-
-    const status = document.createElement('div');
-    status.className = 'alert alert-success';
-    status.textContent = `Uploading ${files.length} photo${files.length !== 1 ? 's' : ''}...`;
-    main.insertBefore(status, main.firstChild);
+    const status = showStatus(`Uploading ${photoCountLabel(files.length)}...`);
 
     const result = await uploadPhotos(files);
 
     if (result.errors.length > 0) {
-      status.className = 'alert alert-error';
-      status.textContent =
-        `Uploaded ${result.uploaded.length} photos. ` +
-        `Failed: ${result.errors.map((e) => e.filename).join(', ')}`;
+      updateStatus(
+        status,
+        `Uploaded ${result.uploaded.length} photos. Failed: ${result.errors.map((e) => e.filename).join(', ')}`,
+        'error'
+      );
     } else {
-      status.className = 'alert alert-success';
-      status.textContent = `Successfully uploaded ${result.uploaded.length} photo${result.uploaded.length !== 1 ? 's' : ''}!`;
+      updateStatus(status, `Successfully uploaded ${photoCountLabel(result.uploaded.length)}!`);
     }
 
     setTimeout(() => {
@@ -404,14 +386,14 @@ function handleAddPhotos() {
     if (files.length === 0) return;
 
     try {
-      const status = showStatus(`Adding ${files.length} photo${files.length !== 1 ? 's' : ''}...`);
+      const status = showStatus(`Adding ${photoCountLabel(files.length)}...`);
 
       const result = await uploadPhotos(files, currentAlbumId);
 
       if (result.errors.length > 0) {
         updateStatus(status, `Added ${result.uploaded.length} photos. Failed: ${result.errors.length}`, 'error');
       } else {
-        updateStatus(status, `Added ${result.uploaded.length} photo${result.uploaded.length !== 1 ? 's' : ''}!`, 'success');
+        updateStatus(status, `Added ${photoCountLabel(result.uploaded.length)}!`);
       }
 
       setTimeout(() => {
@@ -435,18 +417,9 @@ async function handleDeletePhoto(photoId) {
 
   if (currentAlbumId) {
     await renderAlbumDetail(currentAlbumId);
+  } else {
+    await renderSection(currentSection);
   }
-}
-
-async function handleDeletePhotoFromGallery(photoId) {
-  try {
-    await deletePhoto(photoId, false);
-  } catch (error) {
-    console.error('Delete photo failed:', error);
-    showError(describeError(error, 'Failed to delete photo'));
-    return;
-  }
-  await renderSection(currentSection);
 }
 
 async function handleOpenPhoto(photoId) {
@@ -516,7 +489,6 @@ async function handleEditAlbum(albumId) {
 async function handleReorderAlbums(albumId, newPosition) {
   try {
     await updateAlbumOrder(albumId, newPosition);
-    await new Promise((resolve) => setTimeout(resolve, 100));
     await renderSection('albums');
   } catch (error) {
     console.error('Reorder failed:', error);
@@ -525,9 +497,25 @@ async function handleReorderAlbums(albumId, newPosition) {
   }
 }
 
+function getMain() {
+  return document.getElementById('app').querySelector('main');
+}
+
+function showLoading(main) {
+  main.innerHTML = '';
+  const loading = document.createElement('div');
+  loading.className = 'loading';
+  loading.innerHTML = '<div class="spinner"></div>';
+  main.appendChild(loading);
+  return loading;
+}
+
+function photoCountLabel(count) {
+  return `${count} photo${count !== 1 ? 's' : ''}`;
+}
+
 function showStatus(message) {
-  const app = document.getElementById('app');
-  const main = app.querySelector('main');
+  const main = getMain();
 
   const status = document.createElement('div');
   status.className = 'alert alert-success';

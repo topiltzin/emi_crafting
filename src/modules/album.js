@@ -1,9 +1,9 @@
-import { createAlbum, getAlbum, getAlbums } from './db.js';
+import { createAlbum, getAlbumByDate, getAlbumDates } from './db.js';
 
 export async function createAlbumIfNeeded(albumDate, title = null) {
-  // Check if album already exists
-  const albums = await getAlbums();
-  const existing = albums.find((a) => a.album_date === albumDate);
+  // Single-row lookup: this runs once per uploaded file, so it must not load every album
+  // (and sign every cover URL) just to find one by date.
+  const existing = await getAlbumByDate(albumDate);
 
   if (existing) {
     return { album: existing, created: false };
@@ -19,8 +19,7 @@ export async function createAlbumIfNeeded(albumDate, title = null) {
 // so this silently claims the earliest free date (today, or the next day that isn't already
 // taken) rather than asking the user to pick one or resolve a collision themselves.
 export async function createNamedAlbum(title) {
-  const albums = await getAlbums();
-  const takenDates = new Set(albums.map((a) => a.album_date));
+  const takenDates = new Set(await getAlbumDates());
 
   const candidate = new Date();
   candidate.setUTCHours(0, 0, 0, 0);
@@ -31,41 +30,4 @@ export async function createNamedAlbum(title) {
   }
 
   return await createAlbum(albumDate, title);
-}
-
-export async function incrementPhotoCount(albumId) {
-  const album = await getAlbum(albumId);
-  if (!album) {
-    throw new Error(`Album ${albumId} not found`);
-  }
-  // Photo count is incremented in db.createPhoto
-  return album;
-}
-
-export async function decrementPhotoCount(albumId) {
-  const album = await getAlbum(albumId);
-  if (!album) {
-    throw new Error(`Album ${albumId} not found`);
-  }
-  // Photo count is decremented in db.deletePhoto
-  // TODO: Auto-delete empty albums if desired
-  return album;
-}
-
-export function groupPhotosByDate(_files, dateMap = new Map()) {
-  // Group files by album date
-  // This will be called after EXIF extraction
-  // Returns Map<date, files>
-  return dateMap;
-}
-
-export async function ensureAlbumsExist(dateGroups) {
-  const albums = [];
-
-  for (const [date] of dateGroups) {
-    const { album } = await createAlbumIfNeeded(date);
-    albums.push(album);
-  }
-
-  return albums;
 }

@@ -1,6 +1,6 @@
 import { createPhoto } from './db.js';
 import { readFileAsBase64, generateThumbnail, validateFileSize, getMimeType } from './storage.js';
-import { getPhotoDate, getExifData } from './exif.js';
+import { getPhotoMetadata } from './exif.js';
 import { createAlbumIfNeeded } from './album.js';
 
 export async function uploadPhotos(files, albumId = null) {
@@ -32,9 +32,10 @@ export async function addPhoto(albumIdOrNull, file) {
     validateFileSize(file);
     const mimeType = getMimeType(file);
 
-    // Extract EXIF data and photo date
-    const photoDate = await getPhotoDate(file);
-    const exifData = await getExifData(file);
+    // Read and parse the file once; the date and EXIF summary both come from this data URL.
+    const photoDataUrl = await readFileAsBase64(file);
+    const { photoDate, exifData } = getPhotoMetadata(file, photoDataUrl);
+    const photoBase64 = photoDataUrl.split(',')[1];
 
     // Create or get album for this date
     let albumId = albumIdOrNull;
@@ -42,10 +43,6 @@ export async function addPhoto(albumIdOrNull, file) {
       const { album } = await createAlbumIfNeeded(photoDate);
       albumId = album.id;
     }
-
-    // Convert file to base64
-    const photoDataUrl = await readFileAsBase64(file);
-    const photoBase64 = photoDataUrl.split(',')[1];
 
     // Generate thumbnail
     const thumbnailDataUrl = await generateThumbnail(photoDataUrl, 150);
@@ -66,17 +63,4 @@ export async function addPhoto(albumIdOrNull, file) {
   } catch (error) {
     throw new Error(`Failed to upload ${file.name}: ${error.message}`);
   }
-}
-
-export async function removePhoto(photoId) {
-  // Soft delete
-  const { deletePhoto } = await import('./db.js');
-  return await deletePhoto(photoId, false);
-}
-
-export function getPhotoUrl(photoBase64) {
-  if (photoBase64.startsWith('data:')) {
-    return photoBase64;
-  }
-  return `data:image/jpeg;base64,${photoBase64}`;
 }

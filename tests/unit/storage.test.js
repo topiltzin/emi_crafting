@@ -2,10 +2,8 @@ import { describe, it, expect } from 'vitest';
 import {
   readFileAsBase64,
   generateThumbnail,
-  compressThumbnail,
   getMimeType,
-  validateFileSize,
-  createDataUrl
+  validateFileSize
 } from '../../src/modules/storage.js';
 
 describe('storage helpers', () => {
@@ -17,11 +15,6 @@ describe('storage helpers', () => {
 
   it('generates a square thumbnail data URL', async () => {
     const result = await generateThumbnail('data:image/jpeg;base64,fake', 150);
-    expect(result).toMatch(/^data:image\/jpeg;base64,/);
-  });
-
-  it('compresses a thumbnail to a data URL', async () => {
-    const result = await compressThumbnail('data:image/jpeg;base64,fake', 0.5);
     expect(result).toMatch(/^data:image\/jpeg;base64,/);
   });
 
@@ -46,11 +39,4 @@ describe('storage helpers', () => {
     expect(() => validateFileSize(file, 1000)).toThrow(/File size exceeds/);
   });
 
-  it('wraps raw base64 as a data URL', () => {
-    expect(createDataUrl('abc123')).toBe('data:image/jpeg;base64,abc123');
-  });
-
-  it('passes through an already-formed data URL', () => {
-    expect(createDataUrl('data:image/png;base64,abc123')).toBe('data:image/png;base64,abc123');
-  });
 });

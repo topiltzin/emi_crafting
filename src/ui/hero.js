@@ -48,9 +48,10 @@ export function renderHero(photos) {
   return hero;
 }
 
-export function setHeroPhotos(heroElement, photos) {
+// `total` is the library-wide photo count; `photos` may be just the first page.
+export function setHeroPhotos(heroElement, photos, total = photos.length) {
   const current = heroElement.querySelector('.hero-collage');
-  if (current) current.replaceWith(renderCollage(photos));
+  if (current) current.replaceWith(renderCollage(photos, total));
 }
 
 function renderEmptyCollage() {
@@ -60,7 +61,7 @@ function renderEmptyCollage() {
   return collage;
 }
 
-function renderCollage(photos) {
+function renderCollage(photos, total = photos.length) {
   const collage = document.createElement('div');
   collage.className = 'hero-collage';
 
@@ -91,11 +92,9 @@ function renderCollage(photos) {
   const count = document.createElement('p');
   count.className = 'hero-count';
   const number = document.createElement('strong');
-  number.textContent = String(photos.length);
+  number.textContent = String(total);
   count.appendChild(number);
-  count.appendChild(
-    document.createTextNode(photos.length === 1 ? 'craft saved' : 'crafts saved')
-  );
+  count.appendChild(document.createTextNode(total === 1 ? 'craft saved' : 'crafts saved'));
   collage.appendChild(count);
 
   return collage;

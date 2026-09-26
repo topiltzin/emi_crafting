@@ -36,25 +36,6 @@ export function generateThumbnail(base64Data, maxSize = 150) {
   });
 }
 
-export function compressThumbnail(base64Data, quality = 0.7) {
-  return new Promise((resolve) => {
-    const img = new Image();
-
-    img.onload = () => {
-      const canvas = document.createElement('canvas');
-      canvas.width = img.width;
-      canvas.height = img.height;
-
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(img, 0, 0);
-
-      resolve(canvas.toDataURL('image/jpeg', quality));
-    };
-
-    img.src = base64Data;
-  });
-}
-
 export function getMimeType(file) {
   const mimeType = file.type;
   if (!['image/jpeg', 'image/png', 'image/webp'].includes(mimeType)) {
@@ -68,11 +49,4 @@ export function validateFileSize(file, maxSizeBytes = 50 * 1024 * 1024) {
     throw new Error(`File size exceeds ${maxSizeBytes / 1024 / 1024}MB limit`);
   }
   return file.size;
-}
-
-export function createDataUrl(base64Data) {
-  if (base64Data.startsWith('data:')) {
-    return base64Data;
-  }
-  return `data:image/jpeg;base64,${base64Data}`;
 }
