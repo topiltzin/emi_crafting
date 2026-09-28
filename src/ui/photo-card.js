@@ -1,4 +1,5 @@
 import { createTutorialBadge } from './tutorial-badge.js';
+import { createModelBadge } from './model-badge.js';
 
 export function createPhotoCard(photo, options = {}) {
   const { showAlbumLabel = false, showCheckbox = false } = options;
@@ -49,6 +50,10 @@ export function createPhotoCard(photo, options = {}) {
 
   if (photo.tutorial_link) {
     media.appendChild(createTutorialBadge());
+  }
+
+  if (photo.model_storage_path) {
+    media.appendChild(createModelBadge());
   }
 
   const info = document.createElement('div');

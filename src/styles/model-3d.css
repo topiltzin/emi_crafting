@@ -1,0 +1,250 @@
+/* Photo → 3D model (spec 009-photo-to-3d-model) */
+
+/* "3D" sticker on photo-card grid tiles — bottom-left so it never collides with the tutorial
+   badge / selection checkbox (top-left) or the favorite heart (top-right). */
+.model-badge {
+  position: absolute;
+  bottom: var(--spacing-sm);
+  left: var(--spacing-sm);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2rem;
+  height: 1.6rem;
+  padding: 0 0.4rem;
+  border-radius: var(--border-radius-full);
+  background-color: var(--candy-mint);
+  color: var(--ink);
+  border: 2px solid var(--line);
+  box-shadow: 2px 2px 0 0 var(--shadow-ink);
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 0.8rem;
+  letter-spacing: 0.02em;
+  z-index: 1;
+}
+
+/* Placeholder the lazily-loaded panel mounts into (photo-viewer.js). */
+.model-3d-slot {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+}
+
+/* The photo is hidden (not removed) while the 3D view is showing. */
+.photo-viewer-image[hidden] {
+  display: none;
+}
+
+.model-3d-panel {
+  margin-top: var(--spacing-lg);
+  width: min(100%, 560px);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--spacing-sm);
+}
+
+.model-3d-panel:not(.model-3d-panel--has-model) {
+  padding: var(--spacing-md);
+  background-color: var(--color-light-sky);
+  border: 2px dashed var(--line);
+  border-radius: var(--border-radius);
+}
+
+.model-3d-tip {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-light);
+}
+
+.model-3d-status {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.model-3d-status .spinner {
+  flex-shrink: 0;
+  width: 1.5rem;
+  height: 1.5rem;
+}
+
+.model-3d-status-text {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.model-3d-error {
+  margin: 0;
+  padding: var(--spacing-sm) var(--spacing-md);
+  background-color: #ffe1e3;
+  border: 2px solid var(--color-danger);
+  border-radius: var(--border-radius);
+  color: #8f1320;
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+}
+
+/* Photo / 3D bar */
+.model-3d-bar {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+}
+
+.model-3d-toggle {
+  display: inline-flex;
+  border: 2px solid var(--line);
+  border-radius: var(--border-radius-full);
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+  background-color: var(--color-white);
+}
+
+.model-3d-toggle-btn {
+  min-width: 4.5rem;
+  min-height: 2.5rem;
+  padding: 0 var(--spacing-md);
+  border: none;
+  background: transparent;
+  color: var(--color-text);
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: var(--font-size-base);
+  cursor: pointer;
+}
+
+.model-3d-toggle-btn + .model-3d-toggle-btn {
+  border-left: 2px solid var(--line);
+}
+
+.model-3d-toggle-btn[aria-pressed='true'] {
+  background-color: var(--candy-mint);
+}
+
+/* Overflow menu */
+.model-3d-menu {
+  position: relative;
+}
+
+.model-3d-menu-btn {
+  width: 2.5rem;
+  height: 2.5rem;
+  border: 2px solid var(--line);
+  border-radius: 50%;
+  background-color: var(--color-white);
+  color: var(--color-text);
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+}
+
+.model-3d-menu-list {
+  position: absolute;
+  right: 0;
+  top: calc(100% + var(--spacing-xs));
+  z-index: 5;
+  min-width: 12rem;
+  display: flex;
+  flex-direction: column;
+  padding: var(--spacing-xs);
+  background-color: var(--color-white);
+  border: 2px solid var(--line);
+  border-radius: var(--border-radius);
+  box-shadow: var(--shadow-md);
+}
+
+.model-3d-menu-list[hidden] {
+  display: none;
+}
+
+.model-3d-menu-item {
+  text-align: left;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: none;
+  border-radius: calc(var(--border-radius) - 4px);
+  background: transparent;
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.model-3d-menu-item:hover:not(:disabled) {
+  background-color: var(--color-light-purple);
+}
+
+.model-3d-menu-item[data-action='model-remove'] {
+  color: var(--color-danger);
+}
+
+.model-3d-menu-item:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.model-3d-toggle-btn:focus-visible,
+.model-3d-menu-btn:focus-visible,
+.model-3d-menu-item:focus-visible {
+  outline: 3px solid var(--color-secondary);
+  outline-offset: 2px;
+}
+
+/* 3D stage */
+.model-3d-stage {
+  position: relative;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.model-3d-stage model-viewer {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  max-height: 70vh;
+  background-color: var(--color-white);
+  border: var(--border-width) solid var(--line);
+  border-radius: var(--border-radius);
+  --poster-color: transparent;
+}
+
+.model-3d-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-sm);
+  width: 100%;
+  aspect-ratio: 1;
+  max-height: 70vh;
+  font-weight: 700;
+  color: var(--color-text-light);
+  background-color: var(--color-white);
+  border: var(--border-width) dashed var(--line);
+  border-radius: var(--border-radius);
+}
+
+/* While the viewer is loading, it sits under the spinner card instead of beside it. */
+.model-3d-stage model-viewer + .model-3d-loading {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+.model-3d-fallback {
+  margin: 0;
+  padding: var(--spacing-md);
+  background-color: var(--color-peach);
+  border: 2px solid var(--line);
+  border-radius: var(--border-radius);
+  font-weight: 700;
+  text-align: center;
+}

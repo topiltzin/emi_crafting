@@ -14,3 +14,14 @@ Thumbs.db
 *.swp
 .vscode/
 .idea/
+
+# 3D conversion worker (spec 009)
+worker/.env
+worker/.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage

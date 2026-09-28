@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { openPhotoViewer } from '../../src/ui/photo-viewer.js';
 import { initDB, createAlbum, createPhoto, getPhoto } from '../../src/modules/db.js';
 import { getCurrentFakeClient } from '../helpers/fake-supabase-mock.js';
@@ -81,5 +81,56 @@ describe('openPhotoViewer', () => {
     expect(modal).not.toBeNull();
     expect(modal.classList.contains('photo-viewer')).toBe(true);
     expect(document.querySelector('[data-action="dialog-close"]')).not.toBeNull();
+  });
+});
+
+describe('openPhotoViewer — 3D model panel (spec 009)', () => {
+  let fakeClient;
+  let photo;
+
+  beforeEach(async () => {
+    document.body.innerHTML = '<div id="app"></div>';
+    fakeClient = getCurrentFakeClient();
+    await initDB();
+    const album = await createAlbum('2026-09-15');
+    photo = await createPhoto(album.id, {
+      filename: 'craft.jpg',
+      file_size: 10,
+      mime_type: 'image/jpeg',
+      photo_data_base64: btoa('x')
+    });
+  });
+
+  it('mounts the 3D panel between the photo and the tutorial section', async () => {
+    openPhotoViewer(photo);
+    await flushMicrotasks();
+    const content = document.querySelector('.photo-viewer-content');
+    const children = [...content.children].map((c) => c.className);
+    expect(children).toEqual(['photo-viewer-image', 'model-3d-slot', 'photo-viewer-tutorial']);
+    expect(content.querySelector('.model-3d-slot > .model-3d-panel')).not.toBeNull();
+    expect(content.querySelector('[data-action="model-convert"]')).not.toBeNull();
+  });
+
+  it('stops polling a running conversion when the viewer is dismissed', async () => {
+    vi.useFakeTimers({ now: Date.now(), shouldAdvanceTime: true });
+    try {
+      fakeClient._tables.model_conversions.push({
+        id: 'j1',
+        owner_id: 'owner-1',
+        photo_id: photo.id,
+        status: 'processing',
+        requested_at: new Date().toISOString()
+      });
+      openPhotoViewer(photo);
+      await vi.advanceTimersByTimeAsync(0);
+      const fromSpy = vi.spyOn(fakeClient, 'from');
+
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+      await vi.advanceTimersByTimeAsync(20_000);
+
+      expect(fromSpy.mock.calls.filter(([table]) => table === 'model_conversions')).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

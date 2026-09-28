@@ -1,121 +1,39 @@
--- Supabase Postgres schema + RLS for the photo organizer's cloud data migration.
+-- Adds photo → 3D model conversion (spec 009-photo-to-3d-model).
+-- Idempotent: safe to run against a database that already has schema.sql applied.
 --
--- Source of truth: specs/004-supabase-data-migration/contracts/schema.sql (design contract).
--- This copy is what gets applied to the actual Supabase project (SQL editor or
--- `supabase db push`). Keep the two in sync if the schema changes.
+-- Apply with: supabase db push  (or paste into the Supabase SQL editor)
+--
+-- Design: specs/009-photo-to-3d-model/data-model.md and contracts/database.md.
+-- The browser only ever calls request_model_conversion(); the other RPCs are for the
+-- standalone worker (worker/), which authenticates with the service-role key.
 
-create extension if not exists pgcrypto; -- gen_random_uuid()
+-- ---------------------------------------------------------------------------
+-- photos: pointer to the photo's current 3D model (all four set together, or all null)
+-- ---------------------------------------------------------------------------
 
-create table if not exists public.albums (
-  id uuid primary key default gen_random_uuid(),
-  owner_id uuid not null references auth.users(id),
-  album_date date not null,
-  title text,
-  photo_count integer not null default 0,
-  position integer,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now(),
-  deleted_at timestamptz,
-  constraint albums_owner_date_unique unique (owner_id, album_date),
-  constraint albums_title_length check (title is null or char_length(title) <= 255)
+alter table public.photos add column if not exists model_storage_path text;
+alter table public.photos add column if not exists model_file_size bigint;
+alter table public.photos add column if not exists model_generated_at timestamptz;
+-- No FK on purpose: pruning job history must never break the photo (data-model.md).
+alter table public.photos add column if not exists model_job_id uuid;
+
+alter table public.photos drop constraint if exists photos_model_all_or_nothing;
+alter table public.photos add constraint photos_model_all_or_nothing check (
+  (model_storage_path is null) = (model_file_size is null) and
+  (model_storage_path is null) = (model_generated_at is null)
 );
 
-create index if not exists idx_albums_owner_deleted on public.albums (owner_id, deleted_at);
-create index if not exists idx_albums_position on public.albums (owner_id, position);
-
-create table if not exists public.photos (
-  id uuid primary key default gen_random_uuid(),
-  owner_id uuid not null references auth.users(id),
-  album_id uuid not null references public.albums(id),
-  filename text not null,
-  file_size bigint not null check (file_size > 0),
-  mime_type text not null check (mime_type in ('image/jpeg', 'image/png', 'image/webp')),
-  photo_date date,
-  upload_date timestamptz not null default now(),
-  storage_path text not null,
-  thumbnail_storage_path text,
-  exif_json jsonb,
-  is_favorite boolean not null default false,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now(),
-  deleted_at timestamptz,
-  -- Optional YouTube tutorial link (spec 008-craft-tutorial-links). Shape:
-  -- {url, videoId, title, creator, channelId, thumbnail, duration, addedAt}. channelId/duration
-  -- may be null when metadata fetch fails and a placeholder is saved (see research.md fallback).
-  tutorial_link jsonb,
-  -- Current 3D model (spec 009-photo-to-3d-model): all four set together, or all null.
-  model_storage_path text,
-  model_file_size bigint,
-  model_generated_at timestamptz,
-  model_job_id uuid,
-  constraint photos_filename_length check (char_length(filename) <= 255),
-  constraint photos_model_all_or_nothing check (
-    (model_storage_path is null) = (model_file_size is null) and
-    (model_storage_path is null) = (model_generated_at is null)
-  ),
-  constraint photos_model_file_size_range check (
-    model_file_size is null or (model_file_size > 0 and model_file_size <= 52428800)
-  ),
-  constraint photos_model_path_prefix check (
-    model_storage_path is null or
-    model_storage_path like owner_id::text || '/' || id::text || '/model-%.glb'
-  ),
-  constraint photos_tutorial_link_structure check (
-    tutorial_link is null or (
-      tutorial_link ? 'url' and
-      tutorial_link ? 'videoId' and
-      jsonb_typeof(tutorial_link -> 'videoId') = 'string' and
-      char_length(tutorial_link ->> 'videoId') = 11 and
-      tutorial_link ? 'title' and
-      char_length(tutorial_link ->> 'title') between 1 and 255 and
-      tutorial_link ? 'creator' and
-      char_length(tutorial_link ->> 'creator') between 1 and 255 and
-      tutorial_link ? 'thumbnail' and
-      tutorial_link ? 'addedAt'
-    )
-  )
+alter table public.photos drop constraint if exists photos_model_file_size_range;
+alter table public.photos add constraint photos_model_file_size_range check (
+  model_file_size is null or (model_file_size > 0 and model_file_size <= 52428800)
 );
 
-create index if not exists idx_photos_album_deleted on public.photos (album_id, deleted_at);
-create index if not exists idx_photos_owner_deleted on public.photos (owner_id, deleted_at);
-create index if not exists idx_photos_favorite on public.photos (owner_id, is_favorite) where deleted_at is null;
-create index if not exists idx_photos_tutorial_link_channel_id
-  on public.photos using gin ((tutorial_link -> 'channelId'));
-
--- Row Level Security: every row is only visible/writable by its owner (single-owner app).
-alter table public.albums enable row level security;
-alter table public.photos enable row level security;
-
-create policy "albums_owner_all" on public.albums
-  for all
-  using (owner_id = auth.uid())
-  with check (owner_id = auth.uid());
-
-create policy "photos_owner_all" on public.photos
-  for all
-  using (owner_id = auth.uid())
-  with check (owner_id = auth.uid());
-
--- Storage: private bucket for original photos + thumbnails, owner-only access.
--- Create the bucket once via the dashboard/CLI (not plain SQL insert in most setups):
---   supabase storage buckets create photos --private
---
--- Storage policies (owner-only, keyed by the first path segment being the owner's uid,
--- e.g. objects stored at "<owner_id>/<photo_id>/original" and "<owner_id>/<photo_id>/thumb"):
-create policy "photos_bucket_owner_read" on storage.objects
-  for select
-  using (bucket_id = 'photos' and (storage.foldername(name))[1] = auth.uid()::text);
-
-create policy "photos_bucket_owner_write" on storage.objects
-  for insert
-  with check (bucket_id = 'photos' and (storage.foldername(name))[1] = auth.uid()::text);
-
-create policy "photos_bucket_owner_delete" on storage.objects
-  for delete
-  using (bucket_id = 'photos' and (storage.foldername(name))[1] = auth.uid()::text);
-
--- spec 009-photo-to-3d-model: conversion jobs + RPCs.
--- Mirror of supabase/migrations/0002_add_photo_3d_models.sql (keep the two in sync).
+-- A model path must live in this photo's own Storage folder.
+alter table public.photos drop constraint if exists photos_model_path_prefix;
+alter table public.photos add constraint photos_model_path_prefix check (
+  model_storage_path is null or
+  model_storage_path like owner_id::text || '/' || id::text || '/model-%.glb'
+);
 
 -- ---------------------------------------------------------------------------
 -- model_conversions: one row per conversion attempt

@@ -145,6 +145,32 @@ export async function getAlbumDates() {
   return (data || []).map((a) => a.album_date);
 }
 
+// Every Storage object a hard delete must remove for these photos: original, thumbnail, current
+// 3D model, and any model-*.glb a conversion still in flight may have uploaded (spec 009,
+// research.md R8 — the worker discards its own result too, this covers the race).
+async function collectPhotoStoragePaths(client, photos) {
+  const ownerId = getOwnerId();
+  const paths = new Set();
+  for (const photo of photos) {
+    if (photo.storage_path) paths.add(photo.storage_path);
+    if (photo.thumbnail_storage_path) paths.add(photo.thumbnail_storage_path);
+    if (photo.model_storage_path) paths.add(photo.model_storage_path);
+  }
+
+  const listings = await Promise.all(
+    photos.map(async (photo) => {
+      const folder = `${ownerId}/${photo.id}`;
+      const { data, error } = await client.storage.from(PHOTOS_BUCKET).list(folder);
+      if (error) throwClassified(error, 'Failed to list photo files');
+      return (data || []).map((entry) => ({ folder, name: entry.name }));
+    })
+  );
+  for (const { folder, name } of listings.flat()) {
+    if (name.startsWith('model-') && name.endsWith('.glb')) paths.add(`${folder}/${name}`);
+  }
+  return [...paths];
+}
+
 export async function deleteAlbum(albumId, hard = false) {
   const client = getSupabaseClient();
 
@@ -154,15 +180,11 @@ export async function deleteAlbum(albumId, hard = false) {
   if (hard) {
     const { data: photos, error: photosError } = await client
       .from('photos')
-      .select('id, storage_path, thumbnail_storage_path')
+      .select('id, storage_path, thumbnail_storage_path, model_storage_path')
       .eq('album_id', albumId);
     if (photosError) throwClassified(photosError, 'Failed to load photos for album deletion');
 
-    const paths = [];
-    for (const photo of photos || []) {
-      if (photo.storage_path) paths.push(photo.storage_path);
-      if (photo.thumbnail_storage_path) paths.push(photo.thumbnail_storage_path);
-    }
+    const paths = await collectPhotoStoragePaths(client, photos || []);
     if (paths.length > 0) {
       const { error: removeError } = await client.storage.from(PHOTOS_BUCKET).remove(paths);
       if (removeError) throwClassified(removeError, 'Failed to delete photo files');
@@ -419,10 +441,13 @@ export async function getTutorialLinks() {
 export async function deletePhoto(photoId, hard = false) {
   const client = getSupabaseClient();
 
-  const photo = await getPhotoRow(photoId, 'album_id, storage_path, thumbnail_storage_path');
+  const photo = await getPhotoRow(
+    photoId,
+    'id, album_id, storage_path, thumbnail_storage_path, model_storage_path'
+  );
 
   if (hard) {
-    const paths = [photo.storage_path, photo.thumbnail_storage_path].filter(Boolean);
+    const paths = await collectPhotoStoragePaths(client, [{ ...photo, id: photoId }]);
     if (paths.length > 0) {
       const { error: removeError } = await client.storage.from(PHOTOS_BUCKET).remove(paths);
       if (removeError) throwClassified(removeError, 'Failed to delete photo file');

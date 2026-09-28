@@ -253,6 +253,83 @@ describe('Database Module (Supabase-backed)', () => {
     });
   });
 
+  describe('3D model cleanup on delete (spec 009, FR-014)', () => {
+    async function seedPhotoWithModel(albumDate = '2026-09-20') {
+      const album = await createAlbum(albumDate);
+      const photo = await createPhoto(album.id, {
+        filename: 'model.jpg',
+        file_size: 100,
+        mime_type: 'image/jpeg',
+        photo_data_base64: btoa('data')
+      });
+      const folder = `owner-1/${photo.id}`;
+      const row = fakeClient._tables.photos.find((p) => p.id === photo.id);
+      Object.assign(row, {
+        model_storage_path: `${folder}/model-current.glb`,
+        model_file_size: 10,
+        model_generated_at: new Date().toISOString(),
+        model_job_id: 'current'
+      });
+      // Current model plus an orphan from a conversion that was still in flight.
+      fakeClient._storageObjects.add(`photos/${folder}/model-current.glb`);
+      fakeClient._storageObjects.add(`photos/${folder}/model-inflight.glb`);
+      fakeClient._tables.model_conversions.push({
+        id: 'inflight',
+        owner_id: 'owner-1',
+        photo_id: photo.id,
+        status: 'processing',
+        requested_at: new Date().toISOString()
+      });
+      return { album, photo, folder };
+    }
+
+    function modelKeys(folder) {
+      return [`photos/${folder}/model-current.glb`, `photos/${folder}/model-inflight.glb`];
+    }
+
+    it('hard-deleting a photo removes its current and in-flight model files and jobs', async () => {
+      const { photo, folder } = await seedPhotoWithModel();
+      await deletePhoto(photo.id, true);
+      for (const key of [...modelKeys(folder), `photos/${folder}/original`]) {
+        expect(fakeClient._storageObjects.has(key)).toBe(false);
+      }
+      expect(fakeClient._tables.model_conversions).toHaveLength(0);
+    });
+
+    it('hard-deleting an album removes model files for every photo in it', async () => {
+      const { album, folder } = await seedPhotoWithModel();
+      await deleteAlbum(album.id, true);
+      for (const key of modelKeys(folder)) {
+        expect(fakeClient._storageObjects.has(key)).toBe(false);
+      }
+    });
+
+    it('soft delete keeps model files (the photo is recoverable)', async () => {
+      const { album, photo, folder } = await seedPhotoWithModel();
+      await deletePhoto(photo.id, false);
+      const second = await seedPhotoWithModel('2026-09-21');
+      await deleteAlbum(second.album.id, false);
+      for (const key of [...modelKeys(folder), ...modelKeys(second.folder)]) {
+        expect(fakeClient._storageObjects.has(key)).toBe(true);
+      }
+      expect(album).toBeDefined();
+    });
+
+    it('leaves files in place when listing the folder fails', async () => {
+      const { photo, folder } = await seedPhotoWithModel();
+      const realFrom = fakeClient.storage.from;
+      fakeClient.storage.from = (bucket) => ({
+        ...realFrom(bucket),
+        list: async () => ({ data: null, error: new TypeError('Failed to fetch') })
+      });
+      await expect(deletePhoto(photo.id, true)).rejects.toMatchObject({ code: 'network' });
+      fakeClient.storage.from = realFrom;
+      for (const key of modelKeys(folder)) {
+        expect(fakeClient._storageObjects.has(key)).toBe(true);
+      }
+    });
+  });
+
   describe('Album deletion', () => {
     it('soft-deletes an album and its photos together', async () => {
       const album = await createAlbum('2026-09-14');

@@ -30,6 +30,143 @@ any pre-existing local data) are in `specs/004-supabase-data-migration/quickstar
 
 ---
 
+## 🧊 3D Models (spec 009-photo-to-3d-model)
+
+"Make it 3D" turns a photo into an interactive 3D model using **Stability AI's `stable-fast-3d`**
+API. A conversion takes up to a couple minutes, which is longer than Supabase Edge Functions are
+allowed to run on the Free plan. So a small, separate **worker** (`worker/`) does the conversion
+in the background. Set this up once:
+
+1. **Apply the migration**: `supabase db push` (or paste
+   `supabase/migrations/0002_add_photo_3d_models.sql` into the SQL editor). It adds the
+   `photos.model_*` columns, the `model_conversions` job table, and its RPCs. The existing
+   `photos` bucket and its owner-folder Storage policies already cover the model files.
+2. **Run the worker** on any always-on host — see `worker/README.md` for Docker and local
+   instructions, and [Deploying the worker to a free-tier Google Cloud VM](#-deploying-the-worker-to-a-free-tier-google-cloud-vm)
+   below for a concrete walkthrough. It needs `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, and
+   `STABILITY_API_KEY` in `worker/.env`.
+   - The service-role key and Stability API key live **only** in the worker's environment.
+     Never put them in `.env.local`, the repo, or anything the browser loads.
+   - Unlike the earlier Hugging Face TRELLIS.2 backend, `stable-fast-3d` has **no free daily
+     quota** — every conversion spends account credits. Keep an eye on your balance at
+     [platform.stability.ai/account/credits](https://platform.stability.ai/account/credits).
+3. **Nothing changes in the web app's env**. The browser only calls
+   `request_model_conversion` with the signed-in user's session, and RLS scopes it to their own
+   photos.
+
+If the worker is down, conversions stay queued and show as "took too long" after 10 minutes.
+Photos and existing models are unaffected.
+
+Validation steps: `specs/009-photo-to-3d-model/quickstart.md`.
+
+---
+
+## ☁️ Deploying the worker to a free-tier Google Cloud VM
+
+The worker is a small, always-on polling process — a single **e2-micro** instance on Google
+Compute Engine's [Always Free tier](https://cloud.google.com/free/docs/free-cloud-features#compute)
+comfortably runs it at no cost, as long as you stay in one of the free-tier regions
+(`us-west1`, `us-central1`, or `us-east1`) and under the free 30 GB-month standard persistent
+disk allowance.
+
+> Note: "EC2" is Amazon's name for its VM product; Google Cloud's equivalent is **Compute
+> Engine**. These steps are for Compute Engine, per "GoogleCloud" above — if you actually meant
+> AWS, the same Docker image runs the same way on an EC2 `t2.micro`/`t3.micro` free-tier
+> instance (`docker run --restart unless-stopped --env-file worker/.env emi-3d-worker`), you'd
+> just provision and SSH into it via the AWS console/CLI instead of `gcloud` below.
+
+### 1. Create the VM
+
+```bash
+gcloud config set project YOUR_PROJECT_ID
+
+gcloud compute instances create emi-3d-worker \
+  --zone=us-central1-a \
+  --machine-type=e2-micro \
+  --image-family=debian-12 \
+  --image-project=debian-cloud \
+  --boot-disk-size=30GB \
+  --boot-disk-type=pd-standard \
+  --tags=emi-3d-worker
+```
+
+This is the only VM you need — the worker polls Supabase itself, so nothing needs to reach it
+from the internet, and no firewall rule needs opening.
+
+### 2. SSH in and install Docker
+
+```bash
+gcloud compute ssh emi-3d-worker --zone=us-central1-a
+```
+
+Then, on the VM:
+
+```bash
+curl -fsSL https://get.docker.com | sudo sh
+sudo usermod -aG docker "$USER"
+exit   # log back in so the group change takes effect
+gcloud compute ssh emi-3d-worker --zone=us-central1-a
+```
+
+### 3. Copy the worker source and configure it
+
+From your local machine, in the repo root:
+
+```bash
+gcloud compute scp --recurse worker emi-3d-worker:~/worker --zone=us-central1-a
+```
+
+Back on the VM, create `~/worker/.env` (this file never gets committed anywhere):
+
+```bash
+cat > ~/worker/.env <<'EOF'
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+STABILITY_API_KEY=your-stability-api-key
+POLL_SECONDS=10
+EOF
+chmod 600 ~/worker/.env
+```
+
+Use a **freshly generated** Stability API key here, not one that has ever been pasted into a
+chat, ticket, or shared document.
+
+### 4. Build and run it as a systemd-managed container
+
+```bash
+cd ~/worker
+sudo docker build -t emi-3d-worker .
+sudo docker run -d --name emi-3d-worker \
+  --restart unless-stopped \
+  --env-file .env \
+  emi-3d-worker
+```
+
+`--restart unless-stopped` makes Docker's own daemon (which starts on boot via systemd) bring
+the container back up after a VM reboot or crash — no separate systemd unit needed.
+
+### 5. Verify and monitor
+
+```bash
+sudo docker logs -f emi-3d-worker
+# expect: "worker <hostname>-<pid> polling every 10.0s"
+```
+
+To redeploy after a code change: `git pull`/`scp` the updated `worker/` directory, then
+`sudo docker build -t emi-3d-worker . && sudo docker rm -f emi-3d-worker` and re-run the `docker
+run` command from step 4.
+
+### Staying inside the free tier
+
+- One `e2-micro` instance, in `us-west1`, `us-central1`, or `us-east1` only.
+- One `pd-standard` boot disk ≤ 30 GB (`--boot-disk-size=30GB` above already matches this).
+- Free tier is **per billing account**, not per project — if you already run another free-tier
+  VM elsewhere on the same account, this one will incur charges.
+- Outbound network from the VM to Supabase and Stability AI does count toward the (generous) 1
+  GB/month free egress to most destinations; a photo-conversion workload is far below that.
+
+---
+
 ## 📋 Pre-Deployment Checklist
 
 ### Code & Quality

@@ -6,7 +6,9 @@
 // Not a full Postgrest/GoTrue/Storage reimplementation — only the operations db.js issues:
 // select (incl. {count, head})/insert/update/delete with eq/is/in/not filters (eq accepts a
 // `col->>key` JSON path), order, range, single/maybeSingle, and a trivial Storage bucket
-// (upload/remove/createSignedUrl(s)) and Auth (getSession/signIn).
+// (upload/remove/list/createSignedUrl(s)), Auth (getSession/signIn), and rpc() backed by
+// registered handlers (a default request_model_conversion mirrors the real SQL function's rules
+// from supabase/migrations/0002_add_photo_3d_models.sql).
 
 // A strictly-increasing clock (rather than `new Date().toISOString()`) so that rows created
 // in the same test — which can easily land in the same millisecond — still sort deterministically
@@ -26,7 +28,27 @@ function defaultsFor(table) {
       thumbnail_storage_path: null,
       exif_json: null,
       tutorial_link: null,
+      model_storage_path: null,
+      model_file_size: null,
+      model_generated_at: null,
+      model_job_id: null,
       upload_date: nowIso()
+    };
+  }
+  if (table === 'model_conversions') {
+    return {
+      status: 'queued',
+      is_redo: false,
+      seed: 0,
+      settings: {},
+      error_code: null,
+      error_message: null,
+      result_storage_path: null,
+      result_file_size: null,
+      worker_id: null,
+      started_at: null,
+      finished_at: null,
+      requested_at: nowIso()
     };
   }
   return {};
@@ -72,7 +94,7 @@ function applyOrder(rows, orders) {
 }
 
 export function createFakeSupabaseClient({ ownerId = 'owner-1', networkDown = false } = {}) {
-  const tables = { albums: [], photos: [] };
+  const tables = { albums: [], photos: [], model_conversions: [] };
   const storageObjects = new Set();
   let session = { user: { id: ownerId, email: 'owner@example.com' } };
   let uploadFailureCountdown = 0;
@@ -92,6 +114,7 @@ export function createFakeSupabaseClient({ ownerId = 'owner-1', networkDown = fa
     let mode = 'select';
     let payload = null;
     let rangeSpec = null;
+    let limitCount = null;
     let wantSingle = false;
     let wantMaybeSingle = false;
     let countOnly = false;
@@ -140,6 +163,10 @@ export function createFakeSupabaseClient({ ownerId = 'owner-1', networkDown = fa
         rangeSpec = { from, to };
         return builder;
       },
+      limit(count) {
+        limitCount = count;
+        return builder;
+      },
       maybeSingle() {
         wantMaybeSingle = true;
         return builder;
@@ -161,6 +188,7 @@ export function createFakeSupabaseClient({ ownerId = 'owner-1', networkDown = fa
       }
 
       const rows = tables[table];
+      if (!rows) throw new Error(`fake-supabase: unknown table ${table}`);
 
       if (mode === 'insert') {
         const rowsToInsert = Array.isArray(payload) ? payload : [payload];
@@ -195,6 +223,11 @@ export function createFakeSupabaseClient({ ownerId = 'owner-1', networkDown = fa
           const idx = rows.indexOf(row);
           if (idx !== -1) rows.splice(idx, 1);
         }
+        // model_conversions.photo_id references photos(id) on delete cascade.
+        if (table === 'photos') {
+          const deletedIds = new Set(matched.map((row) => row.id));
+          tables.model_conversions = tables.model_conversions.filter((job) => !deletedIds.has(job.photo_id));
+        }
         return finalize(matched.map((row) => ({ ...row })));
       }
 
@@ -205,6 +238,9 @@ export function createFakeSupabaseClient({ ownerId = 'owner-1', networkDown = fa
       matched = applyOrder(matched, orders);
       if (rangeSpec) {
         matched = matched.slice(rangeSpec.from, rangeSpec.to + 1);
+      }
+      if (limitCount !== null) {
+        matched = matched.slice(0, limitCount);
       }
       return finalize(matched.map((row) => ({ ...row })));
     }
@@ -254,7 +290,19 @@ export function createFakeSupabaseClient({ ownerId = 'owner-1', networkDown = fa
           for (const path of paths) storageObjects.delete(`${bucket}/${path}`);
           return { data: paths, error: null };
         },
-        async createSignedUrl(path, _ttlSeconds) {
+        async list(prefix) {
+          try {
+            checkNetwork();
+          } catch (error) {
+            return { data: null, error };
+          }
+          const folder = `${bucket}/${prefix}/`;
+          const data = [...storageObjects]
+            .filter((key) => key.startsWith(folder) && !key.slice(folder.length).includes('/'))
+            .map((key) => ({ name: key.slice(folder.length) }));
+          return { data, error: null };
+        },
+        async createSignedUrl(path, _ttlSeconds, opts = {}) {
           try {
             checkNetwork();
           } catch (error) {
@@ -263,7 +311,9 @@ export function createFakeSupabaseClient({ ownerId = 'owner-1', networkDown = fa
           if (!storageObjects.has(`${bucket}/${path}`)) {
             return { data: null, error: { message: `Object not found: ${path}` } };
           }
-          return { data: { signedUrl: `https://fake.local/storage/${bucket}/${path}` }, error: null };
+          const url = `https://fake.local/storage/${bucket}/${path}`;
+          const signedUrl = opts.download ? `${url}?download=${encodeURIComponent(opts.download)}` : url;
+          return { data: { signedUrl }, error: null };
         },
         async createSignedUrls(paths, _ttlSeconds) {
           try {
@@ -308,6 +358,59 @@ export function createFakeSupabaseClient({ ownerId = 'owner-1', networkDown = fa
     }
   };
 
+  // Mirrors request_model_conversion() in supabase/migrations/0002_add_photo_3d_models.sql:
+  // owner/not-deleted check, one active job per photo, at most 3 active jobs per owner.
+  const ACTIVE_JOB_TIMEOUT_MS = 10 * 60 * 1000;
+  function rpcError(code) {
+    return { data: null, error: { message: code, code: 'P0001' } };
+  }
+  function isFreshActive(job) {
+    return (
+      (job.status === 'queued' || job.status === 'processing') &&
+      Date.now() - new Date(job.requested_at).getTime() < ACTIVE_JOB_TIMEOUT_MS
+    );
+  }
+  const rpcHandlers = {
+    request_model_conversion({ p_photo_id }) {
+      if (!session) return rpcError('NOT_AUTHENTICATED');
+      const photo = tables.photos.find(
+        (row) => row.id === p_photo_id && row.owner_id === ownerId && !row.deleted_at
+      );
+      if (!photo) return rpcError('PHOTO_NOT_FOUND');
+      if (tables.model_conversions.some((job) => job.photo_id === p_photo_id && isFreshActive(job))) {
+        return rpcError('ALREADY_CONVERTING');
+      }
+      const activeCount = tables.model_conversions.filter(
+        (job) => job.owner_id === ownerId && isFreshActive(job)
+      ).length;
+      if (activeCount >= 3) return rpcError('CONVERSION_LIMIT');
+      const isRedo = photo.model_storage_path !== null && photo.model_storage_path !== undefined;
+      const job = {
+        id: crypto.randomUUID(),
+        owner_id: ownerId,
+        photo_id: p_photo_id,
+        ...defaultsFor('model_conversions'),
+        is_redo: isRedo,
+        seed: isRedo ? 12345 : 0
+      };
+      tables.model_conversions.push(job);
+      return { data: { ...job }, error: null };
+    }
+  };
+
+  async function rpc(name, params = {}) {
+    try {
+      checkNetwork();
+    } catch (error) {
+      return { data: null, error };
+    }
+    const handler = rpcHandlers[name];
+    if (!handler) {
+      return { data: null, error: { message: `No fake handler registered for rpc "${name}"` } };
+    }
+    return handler(params);
+  }
+
   const auth = {
     async getSession() {
       return { data: { session }, error: null };
@@ -326,6 +429,7 @@ export function createFakeSupabaseClient({ ownerId = 'owner-1', networkDown = fa
 
   return {
     from: (table) => createQueryBuilder(table),
+    rpc,
     storage,
     auth,
     functions,
@@ -349,6 +453,10 @@ export function createFakeSupabaseClient({ ownerId = 'owner-1', networkDown = fa
     // Edge Function's structured non-2xx response (see youtube-metadata/index.ts).
     _setFunctionHandler(handler) {
       functionHandler = handler;
+    },
+    // handler(params) => {data, error}; overrides the default for that rpc name.
+    _registerRpc(name, handler) {
+      rpcHandlers[name] = handler;
     }
   };
 }

@@ -84,12 +84,40 @@ export function openPhotoViewer(photo) {
     }
   }
 
+  // The 3D panel (spec 009) is code-split so the gallery's main bundle doesn't carry it; it
+  // mounts into this slot as soon as its chunk arrives.
+  const modelSlot = document.createElement('div');
+  modelSlot.className = 'model-3d-slot';
+  let modelPanel = null;
+  let closed = false;
+
+  import('./model-3d-panel.js')
+    .then(({ createModel3dPanel }) => {
+      if (closed) return;
+      modelPanel = createModel3dPanel(currentPhoto, {
+        // Keeps the tutorial handlers working on the latest row after a 3D change (and vice versa).
+        onPhotoChange: (updated) => {
+          currentPhoto = { ...currentPhoto, ...updated };
+        },
+        getPhotoImage: () => content.querySelector('.photo-viewer-image')
+      });
+      modelSlot.appendChild(modelPanel.element);
+    })
+    .catch((error) => {
+      console.error('Failed to load the 3D model panel:', error);
+    });
+
+  content.appendChild(modelSlot);
   content.appendChild(tutorialWrap);
 
   const dialog = openDialog({
     title: photo.filename || 'Photo',
     content,
-    className: 'photo-viewer'
+    className: 'photo-viewer',
+    onClose: () => {
+      closed = true;
+      if (modelPanel) modelPanel.destroy();
+    }
   });
 
   renderTutorial();
@@ -101,7 +129,7 @@ export function openPhotoViewer(photo) {
       img.className = 'photo-viewer-image';
       img.src = url;
       img.alt = photo.filename ? `Full-resolution photo: ${photo.filename}` : 'Full-resolution photo';
-      content.insertBefore(img, tutorialWrap);
+      content.insertBefore(img, modelSlot);
     })
     .catch((error) => {
       loading.remove();
@@ -109,7 +137,7 @@ export function openPhotoViewer(photo) {
       errorEl.className = 'photo-viewer-error';
       errorEl.setAttribute('role', 'alert');
       errorEl.textContent = describeViewerError(error);
-      content.insertBefore(errorEl, tutorialWrap);
+      content.insertBefore(errorEl, modelSlot);
     });
 
   return dialog;

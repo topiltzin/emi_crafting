@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "trellis-worker"
+version = "0.1.0"
+description = "Background worker that turns craft photos into 3D models via Stability AI's stable-fast-3d API (spec 009-photo-to-3d-model)"
+requires-python = ">=3.12"
+dependencies = [
+  "httpx>=0.27",
+  "supabase>=2.10",
+  "Pillow>=10.4",
+  "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-cov>=5", "respx>=0.21", "ruff>=0.6", "mypy>=1.11", "types-Pillow"]
+
+[tool.setuptools]
+packages = ["trellis_worker"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+
+[tool.mypy]
+strict = true
+packages = ["trellis_worker"]
+
+[[tool.mypy.overrides]]
+module = ["supabase.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.coverage.report]
+fail_under = 80
