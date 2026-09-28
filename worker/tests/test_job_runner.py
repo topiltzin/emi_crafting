@@ -14,7 +14,12 @@ from trellis_worker.config import Config
 from trellis_worker.errors import USER_MESSAGES, ConversionError
 from trellis_worker.job_runner import MAX_MODEL_BYTES, monotonic_deadline, run_job
 
-CFG = Config(supabase_url="u", service_role_key="k", stability_api_key="sk-x", worker_id="w1")
+CFG = Config(
+    supabase_url="u",
+    service_role_key="k",
+    sf3d_api_url="https://space.test/generate-3d/",
+    worker_id="w1",
+)
 PATH = "owner-1/photo-1/model-job-1.glb"
 
 
@@ -65,7 +70,7 @@ def test_happy_path(sb, job_row):
     bucket(sb).download.assert_called_once_with("owner-1/photo-1/original")
     args, kwargs = generate.call_args
     assert args[1] == 7
-    assert kwargs["api_key"] == "sk-x"
+    assert kwargs["api_url"] == "https://space.test/generate-3d/"
     assert kwargs["deadline"] > time.monotonic() + 590
 
     bucket(sb).upload.assert_called_once_with(

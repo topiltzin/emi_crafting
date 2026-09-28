@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "trellis-worker"
 version = "0.1.0"
-description = "Background worker that turns craft photos into 3D models via Stability AI's stable-fast-3d API (spec 009-photo-to-3d-model)"
+description = "Background worker that turns craft photos into 3D models via a stable-fast-3d Hugging Face Space (spec 009-photo-to-3d-model)"
 requires-python = ">=3.12"
 dependencies = [
   "httpx>=0.27",

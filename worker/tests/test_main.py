@@ -12,7 +12,7 @@ from trellis_worker.config import Config
 CFG = Config(
     supabase_url="u",
     service_role_key="k",
-    stability_api_key="sk-t",
+    sf3d_api_url="https://space.test/generate-3d/",
     poll_seconds=0.01,
     worker_id="w1",
 )
@@ -83,19 +83,14 @@ def test_main_missing_config(monkeypatch):
     assert main_module.main() == 2
 
 
-def test_main_bad_api_key_exits_nonzero(monkeypatch):
-    monkeypatch.setattr(main_module, "load_config", lambda: CFG)
-    monkeypatch.setattr("supabase.create_client", MagicMock())
-    monkeypatch.setattr(main_module, "check_api", MagicMock(side_effect=RuntimeError("missing")))
-    assert main_module.main() == 1
-
-
 def test_main_runs_loop(monkeypatch):
     monkeypatch.setattr(main_module, "load_config", lambda: CFG)
     monkeypatch.setattr("supabase.create_client", MagicMock())
-    monkeypatch.setattr(main_module, "check_api", MagicMock())
+    check_api = MagicMock()
+    monkeypatch.setattr(main_module, "check_api", check_api)
     run_forever = MagicMock()
     monkeypatch.setattr(main_module, "run_forever", run_forever)
     monkeypatch.setattr(main_module.signal, "signal", MagicMock())
     assert main_module.main() == 0
+    check_api.assert_called_once_with(CFG.sf3d_api_url)
     run_forever.assert_called_once()

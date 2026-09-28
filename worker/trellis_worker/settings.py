@@ -2,7 +2,8 @@
 
 The settings themselves come from the job row (model_conversion_default_settings() in the
 migration is the single source of truth); this only guards against sending out-of-range values.
-Ranges: https://platform.stability.ai/docs/api-reference (POST /v2beta/3d/stable-fast-3d).
+Only texture_resolution is sent to the Space today (see sf3d.py); the rest are validated so the
+job rows stay well-formed.
 """
 
 from __future__ import annotations

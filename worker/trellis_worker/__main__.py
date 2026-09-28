@@ -13,7 +13,7 @@ from typing import Any
 
 from .config import Config, load_config
 from .job_runner import run_job
-from .stability import check_api
+from .sf3d import check_api
 
 log = logging.getLogger("trellis_worker")
 
@@ -63,11 +63,7 @@ def main() -> int:
 
     sb = create_client(cfg.supabase_url, cfg.service_role_key)
 
-    try:
-        check_api(cfg.stability_api_key)
-    except Exception:
-        log.exception("Stability AI API key is not usable; exiting")
-        return 1
+    check_api(cfg.sf3d_api_url)
 
     stop = threading.Event()
 

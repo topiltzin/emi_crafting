@@ -7,9 +7,10 @@ Turns craft photos into 3D models (spec `specs/009-photo-to-3d-model/`). The web
    oldest queued one (`claim_model_conversion`).
 2. It downloads the original photo from the private `photos` bucket, fixes its orientation, and
    downsizes it to 1024 px.
-3. It POSTs the prepared image to Stability AI's `stable-fast-3d` endpoint
-   (`https://api.stability.ai/v2beta/3d/stable-fast-3d`). This is a single synchronous HTTP
-   call — no session or polling — and the response body is the `.glb` itself.
+3. It POSTs the prepared image (multipart `image` + `texture_resolution`) to a public Hugging
+   Face Space running stable-fast-3d (`SF3D_API_URL`, default
+   `https://ahmad-sarmad-ali-3d-model-ai.hf.space/generate-3d/`). This is a single synchronous
+   HTTP call with no API key, and the response body is the `.glb` itself.
 4. It uploads the `.glb` to `photos/<owner>/<photo>/model-<job>.glb` and calls
    `complete_model_conversion`. That call swaps the photo's model pointer and returns the old
    file to delete. If the photo was deleted in the meantime, the worker discards its result.
@@ -25,14 +26,13 @@ Copy `.env.example` to `.env` (git-ignored) and fill it in:
 |---|---|---|
 | `SUPABASE_URL` | yes | Same project URL the web app uses. |
 | `SUPABASE_SERVICE_ROLE_KEY` | yes | **Server-only.** Bypasses RLS. Never put it in the repo, `.env.local`, or `src/`. |
-| `STABILITY_API_KEY` | yes | **Server-only.** From [platform.stability.ai](https://platform.stability.ai/account/keys). Never put it in the repo or `src/`. |
+| `SF3D_API_URL` | no | Default `https://ahmad-sarmad-ali-3d-model-ai.hf.space/generate-3d/`. Point it at your own duplicate of the Space if the public one is slow or gone. |
 | `POLL_SECONDS` | no | Default `10`. |
 | `WORKER_ID` | no | Default `<hostname>-<pid>`. Recorded on each job for debugging. |
 
-**Cost:** stable-fast-3d spends Stability AI account credits per conversion — there is no free
-daily quota (unlike the previous Hugging Face TRELLIS.2 backend). Keep an eye on
-[your account balance](https://platform.stability.ai/account/credits); when it runs out, users
-see "The 3D maker is out of energy for today — try again later."
+**Availability:** the Space is free and third-party-owned. It may sleep (the first request after
+a while can be slow), queue behind other users, or change its API without notice. When it's
+unreachable, users see "The 3D maker is busy right now."
 
 ## Run locally
 
@@ -63,8 +63,8 @@ job 8e31… discarded: photo deleted or job no longer processing
 marked 1 stale job(s) as timed out
 ```
 
-At startup the worker checks that the configured Stability AI API key is valid. If it isn't, it
-exits with a clear error instead of failing every job.
+At startup the worker logs whether the Space answers. This check is never fatal, because a
+sleeping Space wakes up on the first real request.
 
 ## Checks
 

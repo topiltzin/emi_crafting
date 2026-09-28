@@ -14,7 +14,7 @@ from .config import Config
 from .errors import ConversionError, classify
 from .image_prep import prepare_image
 from .settings import validate_settings
-from .stability import generate_glb
+from .sf3d import generate_glb
 from .storage import download_original, model_path, remove_paths, upload_model
 
 log = logging.getLogger(__name__)
@@ -83,7 +83,7 @@ def run_job(
                 image_path,
                 int(job["seed"]),
                 settings,
-                api_key=cfg.stability_api_key,
+                api_url=cfg.sf3d_api_url,
                 deadline=deadline,
             )
 

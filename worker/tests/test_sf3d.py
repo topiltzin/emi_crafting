@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import time
 from pathlib import Path
 from typing import Any
@@ -8,7 +9,9 @@ import httpx
 import pytest
 
 from trellis_worker.errors import ConversionError
-from trellis_worker.stability import API_URL, check_api, generate_glb
+from trellis_worker.sf3d import check_api, generate_glb
+
+API_URL = "https://space.test/generate-3d/"
 
 
 class FakeResponse:
@@ -39,17 +42,17 @@ class FakeClient:
     def __exit__(self, *exc: Any) -> None:
         return None
 
-    def post(self, url: str, **kwargs: Any) -> FakeResponse:
-        self.requests.append({"method": "post", "url": url, **kwargs})
+    def _respond(self, method: str, url: str, **kwargs: Any) -> FakeResponse:
+        self.requests.append({"method": method, "url": url, **kwargs})
         if isinstance(self.response, Exception):
             raise self.response
         return self.response
 
+    def post(self, url: str, **kwargs: Any) -> FakeResponse:
+        return self._respond("post", url, **kwargs)
+
     def get(self, url: str, **kwargs: Any) -> FakeResponse:
-        self.requests.append({"method": "get", "url": url, **kwargs})
-        if isinstance(self.response, Exception):
-            raise self.response
-        return self.response
+        return self._respond("get", url, **kwargs)
 
 
 def factory_for(response: FakeResponse | Exception):
@@ -68,40 +71,39 @@ def image_file(tmp_path: Path) -> Path:
     return path
 
 
-def test_successful_call_returns_glb_bytes(image_file, default_settings):
-    factory = factory_for(FakeResponse(200, content=b"glTF-bytes"))
-    data = generate_glb(
+def call(image_file: Path, settings: dict[str, Any], factory: Any, deadline_in: float = 60):
+    return generate_glb(
         image_file,
         0,
-        default_settings,
-        api_key="sk-x",
-        deadline=time.monotonic() + 60,
+        settings,
+        api_url=API_URL,
+        deadline=time.monotonic() + deadline_in,
         client_factory=factory,
     )
-    assert data == b"glTF-bytes"
+
+
+def test_successful_call_returns_glb_bytes(image_file, default_settings):
+    factory = factory_for(FakeResponse(200, content=b"glTF-bytes"))
+    assert call(image_file, default_settings, factory) == b"glTF-bytes"
 
     req = FakeClient.instances[0].requests[0]
     assert req["url"] == API_URL
-    assert req["headers"]["Authorization"] == "Bearer sk-x"
-    assert req["data"] == {
-        "texture_resolution": "1024",
-        "foreground_ratio": "0.85",
-        "remesh": "none",
-        "vertex_count": "-1",
-    }
+    assert req["data"] == {"texture_resolution": "1024"}
     assert req["files"]["image"][0] == "sample.jpg"
+    assert req["files"]["image"][2] == "image/jpeg"
+    assert "Authorization" not in req["headers"]
+
+
+def test_non_glb_200_body_rejected(image_file, default_settings):
+    factory = factory_for(FakeResponse(200, content=b'{"error":"x"}', json_body={"error": "x"}))
+    with pytest.raises(ConversionError) as info:
+        call(image_file, default_settings, factory)
+    assert info.value.code == "INTERNAL"
 
 
 def test_deadline_already_passed(image_file, default_settings):
     with pytest.raises(ConversionError) as info:
-        generate_glb(
-            image_file,
-            0,
-            default_settings,
-            api_key="sk-x",
-            deadline=time.monotonic() - 1,
-            client_factory=factory_for(FakeResponse(200)),
-        )
+        call(image_file, default_settings, factory_for(FakeResponse(200)), deadline_in=-1)
     assert info.value.code == "TIMEOUT"
     assert FakeClient.instances == []
 
@@ -110,10 +112,8 @@ def test_deadline_already_passed(image_file, default_settings):
     ("status", "code"),
     [
         (400, "INVALID_IMAGE"),
-        (403, "INVALID_IMAGE"),
         (413, "INVALID_IMAGE"),
         (422, "INVALID_IMAGE"),
-        (402, "SERVICE_QUOTA"),
         (429, "SERVICE_BUSY"),
         (503, "SERVICE_BUSY"),
         (500, "INTERNAL"),
@@ -121,61 +121,33 @@ def test_deadline_already_passed(image_file, default_settings):
     ],
 )
 def test_error_status_codes_classified(image_file, default_settings, status, code):
-    factory = factory_for(FakeResponse(status, json_body={"message": "nope"}))
+    factory = factory_for(FakeResponse(status, json_body={"detail": "nope"}))
     with pytest.raises(ConversionError) as info:
-        generate_glb(
-            image_file,
-            0,
-            default_settings,
-            api_key="sk-x",
-            deadline=time.monotonic() + 60,
-            client_factory=factory,
-        )
+        call(image_file, default_settings, factory)
     assert info.value.code == code
 
 
 def test_timeout_exception_maps_to_timeout(image_file, default_settings):
-    factory = factory_for(httpx.ConnectTimeout("timed out"))
     with pytest.raises(ConversionError) as info:
-        generate_glb(
-            image_file,
-            0,
-            default_settings,
-            api_key="sk-x",
-            deadline=time.monotonic() + 60,
-            client_factory=factory,
-        )
+        call(image_file, default_settings, factory_for(httpx.ConnectTimeout("timed out")))
     assert info.value.code == "TIMEOUT"
 
 
 def test_transport_error_classified(image_file, default_settings):
-    factory = factory_for(httpx.ConnectError("boom"))
     with pytest.raises(ConversionError) as info:
-        generate_glb(
-            image_file,
-            0,
-            default_settings,
-            api_key="sk-x",
-            deadline=time.monotonic() + 60,
-            client_factory=factory,
-        )
+        call(image_file, default_settings, factory_for(httpx.ConnectError("boom")))
     assert info.value.code == "SERVICE_BUSY"
 
 
-def test_check_api_ok():
-    check_api("sk-x", client_factory=factory_for(FakeResponse(200)))
+def test_check_api_hits_space_root(caplog):
+    factory = factory_for(FakeResponse(200))
+    with caplog.at_level(logging.INFO):
+        check_api(API_URL, client_factory=factory)
+    assert FakeClient.instances[0].requests[0]["url"] == "https://space.test/"
+    assert "is up" in caplog.text
 
 
-def test_check_api_invalid_key():
-    with pytest.raises(RuntimeError, match="invalid or was revoked"):
-        check_api("sk-bad", client_factory=factory_for(FakeResponse(401)))
-
-
-def test_check_api_other_error():
-    with pytest.raises(RuntimeError, match="HTTP 500"):
-        check_api("sk-x", client_factory=factory_for(FakeResponse(500)))
-
-
-def test_check_api_transport_error():
-    with pytest.raises(RuntimeError, match="Could not reach"):
-        check_api("sk-x", client_factory=factory_for(httpx.ConnectError("down")))
+@pytest.mark.parametrize("response", [FakeResponse(503), httpx.ConnectError("down")])
+def test_check_api_never_raises(caplog, response):
+    check_api(API_URL, client_factory=factory_for(response))
+    assert "3D Space" in caplog.text
