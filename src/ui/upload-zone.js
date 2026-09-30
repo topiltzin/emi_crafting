@@ -1,4 +1,5 @@
 import { showFileUploadDialog } from './file-upload.js';
+import { isHeic } from '../modules/storage.js';
 
 export function renderUploadZone() {
   const wrapper = document.createElement('div');
@@ -125,8 +126,10 @@ export function attachUploadZoneEvents(zoneElement, onConfirm) {
 
   function addFiles(fileList) {
     const allFiles = Array.from(fileList);
-    const accepted = allFiles.filter((file) => file.type.startsWith('image/'));
-    const rejected = allFiles.filter((file) => !file.type.startsWith('image/'));
+    // HEIC often arrives with an empty type (e.g. on Windows), so it's recognized by extension.
+    const isPhoto = (file) => file.type.startsWith('image/') || isHeic(file);
+    const accepted = allFiles.filter(isPhoto);
+    const rejected = allFiles.filter((file) => !isPhoto(file));
 
     accepted.forEach((file) => {
       pendingFiles.push(file);

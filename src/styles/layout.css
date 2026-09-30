@@ -467,6 +467,14 @@ main {
   width: 100%;
 }
 
+/* Load more (paged galleries) */
+
+.load-more {
+  display: flex;
+  justify-content: center;
+  margin: var(--spacing-xl) 0;
+}
+
 /* Toolbar */
 
 .toolbar {

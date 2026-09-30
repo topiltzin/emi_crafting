@@ -1,4 +1,5 @@
 import { createAlbum, getAlbumByDate, getAlbumDates } from './db.js';
+import { toLocalIsoDate, nextIsoDate } from './dates.js';
 
 export async function createAlbumIfNeeded(albumDate, title = null) {
   // Single-row lookup: this runs once per uploaded file, so it must not load every album
@@ -21,12 +22,9 @@ export async function createAlbumIfNeeded(albumDate, title = null) {
 export async function createNamedAlbum(title) {
   const takenDates = new Set(await getAlbumDates());
 
-  const candidate = new Date();
-  candidate.setUTCHours(0, 0, 0, 0);
-  let albumDate = candidate.toISOString().slice(0, 10);
+  let albumDate = toLocalIsoDate();
   while (takenDates.has(albumDate)) {
-    candidate.setUTCDate(candidate.getUTCDate() + 1);
-    albumDate = candidate.toISOString().slice(0, 10);
+    albumDate = nextIsoDate(albumDate);
   }
 
   return await createAlbum(albumDate, title);

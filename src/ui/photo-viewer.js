@@ -128,6 +128,7 @@ export function openPhotoViewer(photo) {
       const img = document.createElement('img');
       img.className = 'photo-viewer-image';
       img.src = url;
+      img.dataset.storagePath = photo.storage_path;
       img.alt = photo.filename ? `Full-resolution photo: ${photo.filename}` : 'Full-resolution photo';
       content.insertBefore(img, modelSlot);
     })

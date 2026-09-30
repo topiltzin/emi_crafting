@@ -18,6 +18,7 @@ export function createPhotoCard(photo, options = {}) {
   const img = document.createElement('img');
   img.className = 'photo-card-image';
   img.src = thumbnailUrl;
+  if (photo.thumbnail_storage_path) img.dataset.storagePath = photo.thumbnail_storage_path;
   img.loading = 'lazy';
   img.alt = photo.filename ? `Craft photo: ${photo.filename}` : 'Craft photo';
   media.appendChild(img);

@@ -400,3 +400,23 @@ grant execute on function public.claim_model_conversion(text) to service_role;
 grant execute on function public.complete_model_conversion(uuid, text, bigint) to service_role;
 grant execute on function public.fail_model_conversion(uuid, text, text) to service_role;
 grant execute on function public.fail_stale_model_conversions() to service_role;
+
+-- ---------------------------------------------------------------------------
+-- Browser RPC: atomic album photo_count adjustment
+-- (supabase/migrations/0003_adjust_album_photo_count.sql)
+-- ---------------------------------------------------------------------------
+
+create or replace function public.adjust_album_photo_count(p_album_id uuid, p_delta integer)
+returns void
+language sql
+security invoker
+set search_path = public
+as $$
+  update public.albums
+     set photo_count = greatest(0, photo_count + p_delta),
+         updated_at = now()
+   where id = p_album_id;
+$$;
+
+revoke execute on function public.adjust_album_photo_count(uuid, integer) from public, anon;
+grant execute on function public.adjust_album_photo_count(uuid, integer) to authenticated;

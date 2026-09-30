@@ -371,6 +371,15 @@ export function createFakeSupabaseClient({ ownerId = 'owner-1', networkDown = fa
     );
   }
   const rpcHandlers = {
+    // Mirrors supabase/migrations/0003_adjust_album_photo_count.sql.
+    adjust_album_photo_count({ p_album_id, p_delta }) {
+      const album = tables.albums.find((row) => row.id === p_album_id && row.owner_id === ownerId);
+      if (album) {
+        album.photo_count = Math.max(0, (album.photo_count || 0) + p_delta);
+        album.updated_at = nowIso();
+      }
+      return { data: null, error: null };
+    },
     request_model_conversion({ p_photo_id }) {
       if (!session) return rpcError('NOT_AUTHENTICATED');
       const photo = tables.photos.find(

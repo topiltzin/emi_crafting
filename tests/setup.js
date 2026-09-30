@@ -29,6 +29,9 @@ vi.mock('../src/modules/supabase-client.js', () => ({
 
 beforeEach(() => {
   resetFakeClient({ ownerId: 'owner-1' });
+  // app.js records routes in the URL hash; a route left over from a previous test would
+  // otherwise be restored by the next initApp().
+  if (typeof history !== 'undefined') history.replaceState(null, '', '/');
   resetMigrationLedgerForTests();
 });
 
@@ -57,6 +60,11 @@ if (typeof HTMLCanvasElement !== 'undefined') {
   // unlike the old sql.js-backed db.js which just stored the raw string in a TEXT column.
   HTMLCanvasElement.prototype.toDataURL = (type = 'image/jpeg') =>
     `data:${type};base64,${btoa('mock-thumbnail-data')}`;
+  // The upload pipeline (storage.js createThumbnailBlob/prepareOriginal) encodes via toBlob,
+  // which jsdom never calls back without the native "canvas" package.
+  HTMLCanvasElement.prototype.toBlob = function toBlob(callback, type = 'image/png') {
+    queueMicrotask(() => callback(new Blob(['mock-image-data'], { type })));
+  };
 }
 
 // jsdom does not implement URL.createObjectURL/revokeObjectURL (used by src/ui/upload-zone.js

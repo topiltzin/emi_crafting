@@ -21,11 +21,13 @@ import { renderNav, attachNavEvents } from './ui/nav.js';
 import { renderHero, attachHeroEvents, setHeroPhotos } from './ui/hero.js';
 import { renderPhotoGallery, attachPhotoGalleryEvents } from './ui/photo-gallery.js';
 import { openPhotoViewer } from './ui/photo-viewer.js';
+import { createPhotoCard } from './ui/photo-card.js';
 import { renderUploadZone, attachUploadZoneEvents } from './ui/upload-zone.js';
 import { openDialog } from './ui/dialog.js';
 import { showCreateAlbumDialog, showRenameAlbumDialog } from './ui/create-album-dialog.js';
 import { initTheme, setThemePreference } from './modules/theme.js';
 import { getSession, signInOwner } from './modules/supabase-client.js';
+import { enableSignedUrlRefresh } from './modules/signed-url-refresh.js';
 import { renderAuthView } from './ui/auth-view.js';
 import { getTutorialCreators, getPhotosByCreator } from './modules/tutorial-link.js';
 import {
@@ -35,6 +37,10 @@ import {
   renderCreatorHeading
 } from './ui/tutorials-tab.js';
 
+const SECTIONS = ['home', 'photos', 'albums', 'favorites', 'tutorials', 'settings'];
+// Galleries load this many photos at a time; "Load more" fetches the next page.
+const PAGE_SIZE = 50;
+
 let currentSection = 'home';
 let currentAlbumId = null;
 let currentCreatorId = null;
@@ -42,9 +48,18 @@ let currentCreatorId = null;
 // started must not touch the DOM, or it would append stale content / remove nodes that are gone.
 let renderToken = 0;
 
+let appListenersBound = false;
+
 export async function initApp() {
   try {
     initTheme();
+    if (!appListenersBound) {
+      appListenersBound = true;
+      enableSignedUrlRefresh(document);
+      window.addEventListener('popstate', () => {
+        if (getMain()) openRoute(parseRoute());
+      });
+    }
 
     const session = await getSession();
     if (!session) {
@@ -86,7 +101,7 @@ function showAuthView() {
 async function startAuthenticatedApp() {
   const migrationResult = await initDB();
   buildShell();
-  await navigateTo('home');
+  await openRoute(parseRoute());
 
   // FR-006: if a pre-existing local library didn't fully transfer to the cloud, local data is
   // untouched and safe — tell the user rather than silently retrying forever in the background.
@@ -111,7 +126,49 @@ function buildShell() {
   app.appendChild(main);
 }
 
+// ----- Routing -----
+// Hash routes (#/photos, #/albums/<id>, #/tutorials/<channelId>) give Back/Forward and refresh
+// something to restore. Views still render directly on navigation; the URL is recorded with
+// pushState alongside, and popstate re-renders whatever the URL now says.
+
+function parseRoute(hash = window.location.hash) {
+  const [section, id] = hash
+    .replace(/^#\/?/, '')
+    .split('/')
+    .map((part) => decodeURIComponent(part));
+  if (!SECTIONS.includes(section)) return { section: 'home', id: null };
+  return { section, id: id || null };
+}
+
+function setRoute(path, { replace = false } = {}) {
+  const hash = `#/${path}`;
+  if (window.location.hash === hash) return;
+  if (replace) {
+    history.replaceState(null, '', hash);
+  } else {
+    history.pushState(null, '', hash);
+  }
+}
+
+async function openRoute({ section, id }) {
+  setActiveSection(section);
+  if (section === 'albums' && id) {
+    await renderAlbumDetail(id);
+  } else if (section === 'tutorials' && id) {
+    await renderCreatorDetailById(id);
+  } else {
+    setRoute(section, { replace: true });
+    await renderSection(section);
+  }
+}
+
 async function navigateTo(section) {
+  setRoute(section);
+  setActiveSection(section);
+  await renderSection(section);
+}
+
+function setActiveSection(section) {
   currentSection = section;
   currentAlbumId = null;
   currentCreatorId = null;
@@ -121,8 +178,6 @@ async function navigateTo(section) {
   const newNav = renderNav(currentSection);
   attachNavEvents(newNav, (nextSection) => navigateTo(nextSection));
   app.replaceChild(newNav, oldNav);
-
-  await renderSection(section);
 }
 
 async function renderSection(section) {
@@ -162,35 +217,86 @@ async function renderHomeSection(target) {
   target().appendChild(hero);
 
   // The gallery shows one page; the hero's "N crafts saved" needs the true total.
-  const [photos, total] = await Promise.all([getAllPhotos(), countPhotos()]);
+  const fetchPage = (offset) => getAllPhotos({ offset, limit: PAGE_SIZE });
+  const [photos, total] = await Promise.all([fetchPage(0), countPhotos()]);
   setHeroPhotos(hero, photos, total);
-  target().appendChild(buildGallery(photos, 'photos'));
+  target().appendChild(buildGallery(photos, 'photos', fetchPage));
 }
 
 async function renderPhotosSection(target) {
-  const photos = await getAllPhotos();
-  target().appendChild(buildGallery(photos, 'photos'));
+  const fetchPage = (offset) => getAllPhotos({ offset, limit: PAGE_SIZE });
+  target().appendChild(buildGallery(await fetchPage(0), 'photos', fetchPage));
 }
 
 async function renderFavoritesSection(target) {
-  const photos = await getAllPhotos({ favoritesOnly: true });
-  target().appendChild(buildGallery(photos, 'favorites'));
+  const fetchPage = (offset) => getAllPhotos({ favoritesOnly: true, offset, limit: PAGE_SIZE });
+  target().appendChild(buildGallery(await fetchPage(0), 'favorites', fetchPage));
 }
 
-function buildGallery(photos, emptyStateVariant) {
-  const gallery = renderPhotoGallery(photos, { emptyStateVariant });
-  attachPhotoGalleryEvents(gallery, handleToggleFavorite, handleDeletePhoto, handleOpenPhoto);
-  attachEmptyStateBridge(gallery);
-  return gallery;
+// fetchPage(offset), when given, loads further pages behind a "Load more" button. Events hang
+// off the stable wrapper so they keep working when the month-grouped gallery is re-rendered.
+function buildGallery(firstPage, emptyStateVariant, fetchPage = null) {
+  const wrapper = document.createElement('div');
+  wrapper.className = 'paged-gallery';
+  let photos = firstPage;
+  let gallery = renderPhotoGallery(photos, { emptyStateVariant });
+  wrapper.appendChild(gallery);
+  attachPhotoGalleryEvents(wrapper, handleToggleFavorite, handleDeletePhoto, handleOpenPhoto);
+  attachEmptyStateBridge(wrapper);
+
+  if (fetchPage && firstPage.length === PAGE_SIZE) {
+    wrapper.appendChild(
+      createLoadMoreButton(async () => {
+        const page = await fetchPage(photos.length);
+        const seen = new Set(photos.map((photo) => photo.id));
+        photos = photos.concat(page.filter((photo) => !seen.has(photo.id)));
+        const updated = renderPhotoGallery(photos, { emptyStateVariant });
+        gallery.replaceWith(updated);
+        gallery = updated;
+        return page.length === PAGE_SIZE;
+      })
+    );
+  }
+  return wrapper;
+}
+
+// loadNextPage() resolves to whether another page may exist.
+function createLoadMoreButton(loadNextPage) {
+  const container = document.createElement('div');
+  container.className = 'load-more';
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'btn btn-secondary';
+  button.textContent = 'Load more photos';
+
+  button.addEventListener('click', async () => {
+    button.disabled = true;
+    button.textContent = 'Loading…';
+    try {
+      if (!(await loadNextPage())) {
+        container.remove();
+        return;
+      }
+    } catch (error) {
+      console.error('Failed to load more photos:', error);
+      showError(describeError(error, 'Failed to load more photos'));
+    }
+    button.disabled = false;
+    button.textContent = 'Load more photos';
+  });
+
+  container.appendChild(button);
+  return container;
 }
 
 async function renderTutorialsSection(target) {
   currentCreatorId = null;
   const creators = await getTutorialCreators();
   const view = renderCreatorList(creators);
-  attachCreatorListEvents(view, (channelId) =>
-    renderCreatorDetail(document.querySelector('#app main'), channelId, creators)
-  );
+  attachCreatorListEvents(view, (channelId) => {
+    setRoute(`tutorials/${encodeURIComponent(channelId)}`);
+    renderCreatorDetail(getMain(), channelId, creators);
+  });
 
   view.addEventListener('click', (event) => {
     if (event.target.closest('[data-action="browse-photos"]')) {
@@ -199,6 +305,31 @@ async function renderTutorialsSection(target) {
   });
 
   target().appendChild(view);
+}
+
+// Deep link / Back-Forward entry point: the creator list isn't in hand yet.
+async function renderCreatorDetailById(channelId) {
+  const token = ++renderToken;
+  const main = getMain();
+  const loading = showLoading(main);
+  let creators;
+  try {
+    creators = await getTutorialCreators();
+  } catch (error) {
+    if (token !== renderToken) return;
+    loading.remove();
+    console.error('Failed to load tutorial creators:', error);
+    showError(describeError(error, 'Failed to load'));
+    return;
+  }
+  if (token !== renderToken) return;
+
+  if (!creators.some((c) => c.channelId === channelId)) {
+    setRoute('tutorials', { replace: true });
+    await renderSection('tutorials');
+    return;
+  }
+  await renderCreatorDetail(main, channelId, creators);
 }
 
 async function renderCreatorDetail(main, channelId, creators) {
@@ -210,7 +341,10 @@ async function renderCreatorDetail(main, channelId, creators) {
   main.innerHTML = '';
 
   const backLink = renderCreatorBackLink();
-  backLink.addEventListener('click', () => renderSection('tutorials'));
+  backLink.addEventListener('click', () => {
+    setRoute('tutorials');
+    renderSection('tutorials');
+  });
   main.appendChild(backLink);
   main.appendChild(renderCreatorHeading(creator));
 
@@ -275,15 +409,33 @@ async function renderAlbumDetail(albumId) {
   try {
     const album = await getAlbum(albumId);
     if (!album) {
-      throw new Error('Album not found');
+      // A stale link (bookmark, Back into a deleted album): land on the album list instead.
+      if (token !== renderToken) return;
+      setRoute('albums', { replace: true });
+      setActiveSection('albums');
+      await renderSection('albums');
+      return;
     }
 
-    const photos = await getPhotos(albumId);
+    const photos = await getPhotos(albumId, 0, PAGE_SIZE);
     if (token !== renderToken) return;
     loading.remove();
 
     const view = renderAlbumView(album, photos);
     main.appendChild(view);
+
+    if (photos.length === PAGE_SIZE) {
+      const grid = view.querySelector('.photo-grid');
+      let loaded = photos.length;
+      view.appendChild(
+        createLoadMoreButton(async () => {
+          const page = await getPhotos(albumId, loaded, PAGE_SIZE);
+          loaded += page.length;
+          page.forEach((photo) => grid.appendChild(createPhotoCard(photo)));
+          return page.length === PAGE_SIZE;
+        })
+      );
+    }
 
     attachAlbumViewEvents(view, handleBackToAlbums, handleAddPhotos, handleDeletePhoto, () =>
       handleEditAlbum(albumId)
@@ -350,7 +502,9 @@ async function handleUploadPhotos(files) {
   try {
     const status = showStatus(`Uploading ${photoCountLabel(files.length)}...`);
 
-    const result = await uploadPhotos(files);
+    const result = await uploadPhotos(files, null, {
+      onProgress: (done, total) => updateStatus(status, `Uploading ${done} of ${total}...`)
+    });
 
     if (result.errors.length > 0) {
       updateStatus(
@@ -372,6 +526,7 @@ async function handleUploadPhotos(files) {
 }
 
 async function handleViewAlbum(albumId) {
+  setRoute(`albums/${encodeURIComponent(albumId)}`);
   await renderAlbumDetail(albumId);
 }
 
@@ -388,7 +543,9 @@ function handleAddPhotos() {
     try {
       const status = showStatus(`Adding ${photoCountLabel(files.length)}...`);
 
-      const result = await uploadPhotos(files, currentAlbumId);
+      const result = await uploadPhotos(files, currentAlbumId, {
+        onProgress: (done, total) => updateStatus(status, `Adding ${done} of ${total}...`)
+      });
 
       if (result.errors.length > 0) {
         updateStatus(status, `Added ${result.uploaded.length} photos. Failed: ${result.errors.length}`, 'error');
@@ -408,7 +565,9 @@ function handleAddPhotos() {
 
 async function handleDeletePhoto(photoId) {
   try {
-    await deletePhoto(photoId, false);
+    // Permanent, like album deletion: the dialog promises "can't be undone" and there is no trash
+    // screen, so a soft delete only left invisible files consuming storage forever.
+    await deletePhoto(photoId, true);
   } catch (error) {
     console.error('Delete photo failed:', error);
     showError(describeError(error, 'Failed to delete photo'));

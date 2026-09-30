@@ -1,9 +1,11 @@
 import piexif from 'piexifjs';
 import { readFileAsBase64 } from './storage.js';
+import { toLocalIsoDate } from './dates.js';
 
 // Parses the EXIF block once; callers that need both the date and the metadata (addPhoto)
 // share one parse instead of reading/decoding the file twice.
 function loadExif(dataUrl) {
+  if (!dataUrl) return null;
   try {
     return piexif.load(dataUrl);
   } catch (error) {
@@ -46,14 +48,15 @@ export function formatExifDate(exifDateString) {
 }
 
 /**
- * Derives the album date and EXIF summary from an already-read data URL, so an upload reads
- * and parses each file exactly once.
+ * Derives the album date and EXIF summary from an already-read data URL (the whole file or just
+ * its JPEG header; null when the format has no EXIF piexif can read). Without an EXIF date, the
+ * file's last-modified time decides — as the user's local calendar day, not the UTC one.
  * @returns {{photoDate: string, exifData: object|null}}
  */
 export function getPhotoMetadata(file, dataUrl) {
   const exif = loadExif(dataUrl);
   const photoDate =
-    formatExifDate(exifDateFrom(exif)) || new Date(file.lastModified).toISOString().split('T')[0];
+    formatExifDate(exifDateFrom(exif)) || toLocalIsoDate(new Date(file.lastModified));
   return { photoDate, exifData: exifFieldsFrom(exif) };
 }
 

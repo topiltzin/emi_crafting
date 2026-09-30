@@ -83,6 +83,7 @@ function renderCollage(photos, total = photos.length) {
     sticker.className = 'hero-sticker';
     const img = document.createElement('img');
     img.src = photo.thumbnail_url;
+    if (photo.thumbnail_storage_path) img.dataset.storagePath = photo.thumbnail_storage_path;
     img.alt = photo.filename ? `Recent craft: ${photo.filename}` : 'Recent craft';
     img.loading = 'eager';
     sticker.appendChild(img);

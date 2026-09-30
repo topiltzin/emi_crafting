@@ -43,6 +43,7 @@ export function createAlbumCard(album, index = 0) {
     const img = document.createElement('img');
     img.className = 'album-thumbnail-img';
     img.src = album.cover_thumbnail_url;
+    if (album.cover_thumbnail_path) img.dataset.storagePath = album.cover_thumbnail_path;
     img.alt = `Cover photo for ${album.title || formatAlbumDate(album.album_date)}`;
     img.loading = 'lazy';
     thumbnail.appendChild(img);

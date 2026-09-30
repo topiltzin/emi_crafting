@@ -116,6 +116,7 @@ export async function getAlbums(sortByCustom = true) {
   const urls = await signPaths([...coverByAlbum.values()], 'Failed to resolve album cover image');
   return albums.map((album) => ({
     ...album,
+    cover_thumbnail_path: coverByAlbum.get(album.id) || null,
     cover_thumbnail_url: urls.get(coverByAlbum.get(album.id)) || null
   }));
 }
@@ -266,8 +267,13 @@ export async function createPhoto(albumId, photoData) {
   const filename = photoData.filename;
   const fileSize = photoData.file_size;
   const mimeType = photoData.mime_type;
-  const photoBase64 = photoData.photo_data_base64;
-  const thumbnailBase64 = photoData.thumbnail_base64;
+  // Binaries arrive as Blobs from uploads, or as base64 from the legacy local-library migration.
+  const photoBody =
+    photoData.photo_blob ||
+    (photoData.photo_data_base64 ? base64ToUint8Array(photoData.photo_data_base64) : null);
+  const thumbnailBody =
+    photoData.thumbnail_blob ||
+    (photoData.thumbnail_base64 ? base64ToUint8Array(photoData.thumbnail_base64) : null);
 
   if (!filename || filename.length > 255) {
     throw validationError('filename is required and must be max 255 characters');
@@ -278,7 +284,7 @@ export async function createPhoto(albumId, photoData) {
   if (!mimeType || !ALLOWED_MIME_TYPES.has(mimeType)) {
     throw validationError(`Unsupported file type: ${mimeType}`);
   }
-  if (!photoBase64) {
+  if (!photoBody) {
     throw validationError('photo_data_base64 is required');
   }
 
@@ -287,46 +293,66 @@ export async function createPhoto(albumId, photoData) {
   const photoId = crypto.randomUUID();
 
   const originalPath = buildOriginalPhotoPath(ownerId, photoId);
-  const thumbnailPath = thumbnailBase64 ? buildThumbnailPhotoPath(ownerId, photoId) : null;
+  const thumbnailPath = thumbnailBody ? buildThumbnailPhotoPath(ownerId, photoId) : null;
+  const uploadedPaths = [];
 
-  // Upload binaries FIRST — a photo row must never exist without its file already saved (FR-008).
-  const { error: uploadError } = await client.storage
-    .from(PHOTOS_BUCKET)
-    .upload(originalPath, base64ToUint8Array(photoBase64), { contentType: mimeType, upsert: false });
-  if (uploadError) throwClassified(uploadError, 'Failed to upload photo');
-
-  if (thumbnailPath) {
-    const { error: thumbnailUploadError } = await client.storage
+  try {
+    // Upload binaries FIRST — a photo row must never exist without its file already saved (FR-008).
+    const { error: uploadError } = await client.storage
       .from(PHOTOS_BUCKET)
-      .upload(thumbnailPath, base64ToUint8Array(thumbnailBase64), {
-        contentType: 'image/jpeg',
-        upsert: false
-      });
-    if (thumbnailUploadError) throwClassified(thumbnailUploadError, 'Failed to upload thumbnail');
+      .upload(originalPath, photoBody, { contentType: mimeType, upsert: false });
+    if (uploadError) throwClassified(uploadError, 'Failed to upload photo');
+    uploadedPaths.push(originalPath);
+
+    if (thumbnailPath) {
+      const { error: thumbnailUploadError } = await client.storage
+        .from(PHOTOS_BUCKET)
+        .upload(thumbnailPath, thumbnailBody, { contentType: 'image/jpeg', upsert: false });
+      if (thumbnailUploadError) throwClassified(thumbnailUploadError, 'Failed to upload thumbnail');
+      uploadedPaths.push(thumbnailPath);
+    }
+
+    const { data: inserted, error: insertError } = await client
+      .from('photos')
+      .insert({
+        id: photoId,
+        owner_id: ownerId,
+        album_id: albumId,
+        filename,
+        file_size: fileSize,
+        mime_type: mimeType,
+        photo_date: photoData.photo_date || null,
+        storage_path: originalPath,
+        thumbnail_storage_path: thumbnailPath,
+        exif_json: photoData.exif_json || null
+      })
+      .select()
+      .single();
+
+    if (insertError) throwClassified(insertError, 'Failed to save photo');
+
+    await adjustAlbumPhotoCount(client, albumId, 1);
+
+    return toPhoto(inserted);
+  } catch (error) {
+    // No row will point at these files, so nothing would ever clean them up. The row itself (if
+    // the count update is what failed) stays — it's a valid photo.
+    if (uploadedPaths.length > 0 && !(await photoRowExists(client, photoId))) {
+      const { error: cleanupError } = await client.storage.from(PHOTOS_BUCKET).remove(uploadedPaths);
+      if (cleanupError) console.warn('Failed to clean up orphaned photo files:', cleanupError);
+    }
+    throw error;
   }
+}
 
-  const { data: inserted, error: insertError } = await client
-    .from('photos')
-    .insert({
-      id: photoId,
-      owner_id: ownerId,
-      album_id: albumId,
-      filename,
-      file_size: fileSize,
-      mime_type: mimeType,
-      photo_date: photoData.photo_date || null,
-      storage_path: originalPath,
-      thumbnail_storage_path: thumbnailPath,
-      exif_json: photoData.exif_json || null
-    })
-    .select()
-    .single();
-
-  if (insertError) throwClassified(insertError, 'Failed to save photo');
-
-  await incrementAlbumPhotoCount(client, albumId, 1);
-
-  return toPhoto(inserted);
+async function photoRowExists(client, photoId) {
+  try {
+    const { data, error } = await client.from('photos').select('id').eq('id', photoId).maybeSingle();
+    // When unsure, assume it exists — deleting a live photo's files is worse than leaking them.
+    return error ? true : Boolean(data);
+  } catch {
+    return true;
+  }
 }
 
 export async function getPhoto(photoId) {
@@ -463,7 +489,7 @@ export async function deletePhoto(photoId, hard = false) {
     if (updateError) throwClassified(updateError, 'Failed to delete photo');
   }
 
-  await incrementAlbumPhotoCount(client, photo.album_id, -1);
+  await adjustAlbumPhotoCount(client, photo.album_id, -1);
 }
 
 export async function updatePhotoTutorialLink(photoId, tutorialLink) {
@@ -504,22 +530,14 @@ export async function toggleFavorite(photoId) {
 
 // ----- Helpers -----
 
-async function incrementAlbumPhotoCount(client, albumId, delta) {
-  const { data: album, error: fetchError } = await client
-    .from('albums')
-    .select('photo_count')
-    .eq('id', albumId)
-    .single();
-  if (fetchError) throwClassified(fetchError, 'Failed to update album photo count');
-
-  const { error: updateError } = await client
-    .from('albums')
-    .update({
-      photo_count: Math.max(0, (album.photo_count || 0) + delta),
-      updated_at: new Date().toISOString()
-    })
-    .eq('id', albumId);
-  if (updateError) throwClassified(updateError, 'Failed to update album photo count');
+// Atomic in the database (supabase/migrations/0003_adjust_album_photo_count.sql): with uploads
+// running concurrently, a read-then-write here would lose increments.
+async function adjustAlbumPhotoCount(client, albumId, delta) {
+  const { error } = await client.rpc('adjust_album_photo_count', {
+    p_album_id: albumId,
+    p_delta: delta
+  });
+  if (error) throwClassified(error, 'Failed to update album photo count');
 }
 
 function base64ToUint8Array(base64) {
