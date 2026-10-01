@@ -24,6 +24,8 @@ export function renderAlbumView(album, photos) {
   title.textContent = album.title || formatAlbumDate(album.album_date);
 
   const date = document.createElement('p');
+  date.className = 'album-photo-count';
+  date.dataset.count = String(album.photo_count);
   date.textContent = `${album.photo_count} photo${album.photo_count !== 1 ? 's' : ''}`;
 
   headerInfo.appendChild(title);

@@ -14,7 +14,10 @@ function describeViewerError(error) {
   return `Failed to load photo: ${(error && error.message) || 'Unknown error'}`;
 }
 
-export function openPhotoViewer(photo) {
+// onClose runs when the user dismisses the viewer (close button, Escape, backdrop); the returned
+// close() is for closing it programmatically and doesn't call onClose. onPhotoChange(photo) runs
+// after the viewer saves a change to the photo (tutorial link, 3D model).
+export function openPhotoViewer(photo, { onClose, onPhotoChange } = {}) {
   const content = document.createElement('div');
   content.className = 'photo-viewer-content';
 
@@ -32,6 +35,10 @@ export function openPhotoViewer(photo) {
   tutorialErrorEl.setAttribute('role', 'alert');
 
   let currentPhoto = photo;
+
+  function notifyChange() {
+    if (typeof onPhotoChange === 'function') onPhotoChange(currentPhoto);
+  }
 
   function renderTutorial() {
     tutorialWrap.innerHTML = '';
@@ -57,6 +64,7 @@ export function openPhotoViewer(photo) {
         useFallback: result.useFallback
       });
       currentPhoto = updatedPhoto;
+      notifyChange();
       renderTutorial();
     } catch (error) {
       console.error('Failed to save tutorial link:', error);
@@ -76,6 +84,7 @@ export function openPhotoViewer(photo) {
     tutorialErrorEl.hidden = true;
     try {
       currentPhoto = await deleteTutorialLink(currentPhoto.id);
+      notifyChange();
       renderTutorial();
     } catch (error) {
       console.error('Failed to remove tutorial link:', error);
@@ -98,6 +107,7 @@ export function openPhotoViewer(photo) {
         // Keeps the tutorial handlers working on the latest row after a 3D change (and vice versa).
         onPhotoChange: (updated) => {
           currentPhoto = { ...currentPhoto, ...updated };
+          notifyChange();
         },
         getPhotoImage: () => content.querySelector('.photo-viewer-image')
       });
@@ -110,13 +120,19 @@ export function openPhotoViewer(photo) {
   content.appendChild(modelSlot);
   content.appendChild(tutorialWrap);
 
+  function teardown() {
+    if (closed) return;
+    closed = true;
+    if (modelPanel) modelPanel.destroy();
+  }
+
   const dialog = openDialog({
     title: photo.filename || 'Photo',
     content,
     className: 'photo-viewer',
     onClose: () => {
-      closed = true;
-      if (modelPanel) modelPanel.destroy();
+      teardown();
+      if (typeof onClose === 'function') onClose();
     }
   });
 
@@ -141,5 +157,10 @@ export function openPhotoViewer(photo) {
       content.insertBefore(errorEl, modelSlot);
     });
 
-  return dialog;
+  return {
+    close: () => {
+      dialog.close();
+      teardown();
+    }
+  };
 }

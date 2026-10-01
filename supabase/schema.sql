@@ -402,21 +402,42 @@ grant execute on function public.fail_model_conversion(uuid, text, text) to serv
 grant execute on function public.fail_stale_model_conversions() to service_role;
 
 -- ---------------------------------------------------------------------------
--- Browser RPC: atomic album photo_count adjustment
--- (supabase/migrations/0003_adjust_album_photo_count.sql)
+-- albums.photo_count maintained by trigger
+-- (supabase/migrations/0004_album_photo_count_trigger.sql)
 -- ---------------------------------------------------------------------------
 
-create or replace function public.adjust_album_photo_count(p_album_id uuid, p_delta integer)
-returns void
-language sql
-security invoker
+create or replace function public.sync_album_photo_count()
+returns trigger
+language plpgsql
 set search_path = public
 as $$
-  update public.albums
-     set photo_count = greatest(0, photo_count + p_delta),
-         updated_at = now()
-   where id = p_album_id;
+declare
+  was_counted boolean := tg_op in ('UPDATE', 'DELETE') and old.deleted_at is null;
+  is_counted boolean := tg_op in ('INSERT', 'UPDATE') and new.deleted_at is null;
+begin
+  if tg_op = 'UPDATE'
+     and old.album_id is not distinct from new.album_id
+     and was_counted = is_counted then
+    return null;
+  end if;
+
+  if was_counted then
+    update public.albums
+       set photo_count = greatest(0, photo_count - 1), updated_at = now()
+     where id = old.album_id;
+  end if;
+
+  if is_counted then
+    update public.albums
+       set photo_count = photo_count + 1, updated_at = now()
+     where id = new.album_id;
+  end if;
+
+  return null;
+end;
 $$;
 
-revoke execute on function public.adjust_album_photo_count(uuid, integer) from public, anon;
-grant execute on function public.adjust_album_photo_count(uuid, integer) to authenticated;
+drop trigger if exists photos_sync_album_photo_count on public.photos;
+create trigger photos_sync_album_photo_count
+  after insert or delete or update of album_id, deleted_at on public.photos
+  for each row execute function public.sync_album_photo_count();

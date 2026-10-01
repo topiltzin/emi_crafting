@@ -101,6 +101,17 @@ export function createFakeSupabaseClient({ ownerId = 'owner-1', networkDown = fa
   let removeFailureCountdown = 0;
   const deleteFailureCountdowns = {};
 
+  // Mirrors the photos_sync_album_photo_count trigger
+  // (supabase/migrations/0004_album_photo_count_trigger.sql).
+  function syncAlbumPhotoCount(oldRow, newRow) {
+    const adjust = (albumId, delta) => {
+      const album = tables.albums.find((row) => row.id === albumId);
+      if (album) album.photo_count = Math.max(0, (album.photo_count || 0) + delta);
+    };
+    if (oldRow && !oldRow.deleted_at) adjust(oldRow.album_id, -1);
+    if (newRow && !newRow.deleted_at) adjust(newRow.album_id, 1);
+  }
+
   function checkNetwork() {
     if (networkDown) {
       const error = new TypeError('Failed to fetch');
@@ -202,6 +213,7 @@ export function createFakeSupabaseClient({ ownerId = 'owner-1', networkDown = fa
             ...row
           };
           rows.push(record);
+          if (table === 'photos') syncAlbumPhotoCount(null, record);
           return { ...record };
         });
         return finalize(inserted);
@@ -210,7 +222,11 @@ export function createFakeSupabaseClient({ ownerId = 'owner-1', networkDown = fa
       let matched = rows.filter((row) => matchFilters(row, filters));
 
       if (mode === 'update') {
-        matched.forEach((row) => Object.assign(row, payload));
+        matched.forEach((row) => {
+          const before = { ...row };
+          Object.assign(row, payload);
+          if (table === 'photos') syncAlbumPhotoCount(before, row);
+        });
         return finalize(matched.map((row) => ({ ...row })));
       }
 
@@ -222,6 +238,7 @@ export function createFakeSupabaseClient({ ownerId = 'owner-1', networkDown = fa
         for (const row of matched) {
           const idx = rows.indexOf(row);
           if (idx !== -1) rows.splice(idx, 1);
+          if (table === 'photos') syncAlbumPhotoCount(row, null);
         }
         // model_conversions.photo_id references photos(id) on delete cascade.
         if (table === 'photos') {
@@ -371,15 +388,6 @@ export function createFakeSupabaseClient({ ownerId = 'owner-1', networkDown = fa
     );
   }
   const rpcHandlers = {
-    // Mirrors supabase/migrations/0003_adjust_album_photo_count.sql.
-    adjust_album_photo_count({ p_album_id, p_delta }) {
-      const album = tables.albums.find((row) => row.id === p_album_id && row.owner_id === ownerId);
-      if (album) {
-        album.photo_count = Math.max(0, (album.photo_count || 0) + p_delta);
-        album.updated_at = nowIso();
-      }
-      return { data: null, error: null };
-    },
     request_model_conversion({ p_photo_id }) {
       if (!session) return rpcError('NOT_AUTHENTICATED');
       const photo = tables.photos.find(

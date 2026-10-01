@@ -49,6 +49,15 @@ let currentCreatorId = null;
 let renderToken = 0;
 
 let appListenersBound = false;
+// The open photo viewer, if any: { photoId, hash, close }. It owns a history entry (pushed on
+// open) so the browser/phone Back button closes it instead of leaving the page underneath.
+let openViewer = null;
+// Set when the viewer closes itself and steps back past its own history entry, so the popstate
+// that follows isn't mistaken for a navigation.
+let ignoreNextPopstate = false;
+// How many photos the next gallery render should load up front — set before a re-render that
+// should keep what was already showing (e.g. after an upload) instead of snapping to page one.
+let keepLoadedCount = 0;
 
 export async function initApp() {
   try {
@@ -56,9 +65,7 @@ export async function initApp() {
     if (!appListenersBound) {
       appListenersBound = true;
       enableSignedUrlRefresh(document);
-      window.addEventListener('popstate', () => {
-        if (getMain()) openRoute(parseRoute());
-      });
+      window.addEventListener('popstate', handlePopstate);
     }
 
     const session = await getSession();
@@ -102,6 +109,10 @@ async function startAuthenticatedApp() {
   const migrationResult = await initDB();
   buildShell();
   await openRoute(parseRoute());
+  // A refresh while the viewer was open lands on its history entry; reopen it there.
+  if (history.state && history.state.photoViewer) {
+    await handleOpenPhoto(history.state.photoViewer, { pushHistory: false });
+  }
 
   // FR-006: if a pre-existing local library didn't fully transfer to the cloud, local data is
   // untouched and safe — tell the user rather than silently retrying forever in the background.
@@ -162,6 +173,30 @@ async function openRoute({ section, id }) {
   }
 }
 
+function handlePopstate(event) {
+  if (ignoreNextPopstate) {
+    ignoreNextPopstate = false;
+    return;
+  }
+  if (!getMain()) return;
+
+  if (openViewer) {
+    const viewer = openViewer;
+    openViewer = null;
+    viewer.close();
+    // Back from the viewer returns to the page it was opened over — already on screen.
+    if (window.location.hash === viewer.hash) return;
+  }
+
+  const state = event && event.state;
+  if (state && state.photoViewer) {
+    // Forward onto a viewer entry: reopen that photo over the page underneath.
+    handleOpenPhoto(state.photoViewer, { pushHistory: false });
+    return;
+  }
+  openRoute(parseRoute());
+}
+
 async function navigateTo(section) {
   setRoute(section);
   setActiveSection(section);
@@ -211,31 +246,61 @@ async function renderSection(section) {
   }
 }
 
+// Size of a gallery's first fetch: one page, or everything that was showing before a re-render.
+function takeFirstPageLimit() {
+  const limit = Math.max(PAGE_SIZE, keepLoadedCount);
+  keepLoadedCount = 0;
+  return limit;
+}
+
+// Photos currently loaded in the gallery or album on screen.
+function loadedPhotoCount() {
+  const main = getMain();
+  return main ? main.querySelectorAll('.photo-card').length : 0;
+}
+
 async function renderHomeSection(target) {
   const hero = renderHero();
   attachHeroEvents(hero, handleAddPhotosEntry, handleCreateAlbum);
   target().appendChild(hero);
 
   // The gallery shows one page; the hero's "N crafts saved" needs the true total.
-  const fetchPage = (offset) => getAllPhotos({ offset, limit: PAGE_SIZE });
-  const [photos, total] = await Promise.all([fetchPage(0), countPhotos()]);
+  const limit = takeFirstPageLimit();
+  const fetchPage = (offset, pageLimit = PAGE_SIZE) => getAllPhotos({ offset, limit: pageLimit });
+  const [photos, total] = await Promise.all([fetchPage(0, limit), countPhotos()]);
   setHeroPhotos(hero, photos, total);
-  target().appendChild(buildGallery(photos, 'photos', fetchPage));
+
+  let remaining = total;
+  target().appendChild(
+    buildGallery(photos, 'photos', fetchPage, limit, {
+      onRemove: (shownPhotos) => {
+        remaining = Math.max(0, remaining - 1);
+        setHeroPhotos(hero, shownPhotos, remaining);
+      }
+    })
+  );
 }
 
 async function renderPhotosSection(target) {
-  const fetchPage = (offset) => getAllPhotos({ offset, limit: PAGE_SIZE });
-  target().appendChild(buildGallery(await fetchPage(0), 'photos', fetchPage));
+  const limit = takeFirstPageLimit();
+  const fetchPage = (offset, pageLimit = PAGE_SIZE) => getAllPhotos({ offset, limit: pageLimit });
+  target().appendChild(buildGallery(await fetchPage(0, limit), 'photos', fetchPage, limit));
 }
 
 async function renderFavoritesSection(target) {
-  const fetchPage = (offset) => getAllPhotos({ favoritesOnly: true, offset, limit: PAGE_SIZE });
-  target().appendChild(buildGallery(await fetchPage(0), 'favorites', fetchPage));
+  const limit = takeFirstPageLimit();
+  const fetchPage = (offset, pageLimit = PAGE_SIZE) =>
+    getAllPhotos({ favoritesOnly: true, offset, limit: pageLimit });
+  target().appendChild(buildGallery(await fetchPage(0, limit), 'favorites', fetchPage, limit));
 }
 
-// fetchPage(offset), when given, loads further pages behind a "Load more" button. Events hang
-// off the stable wrapper so they keep working when the month-grouped gallery is re-rendered.
-function buildGallery(firstPage, emptyStateVariant, fetchPage = null) {
+// fetchPage(offset), when given, loads further pages behind a "Load more" button (firstLimit is
+// what the first page asked for, to tell whether more may exist). Events hang off the stable
+// wrapper so they keep working when the month-grouped gallery is re-rendered.
+//
+// The wrapper's galleryController lets deletes and favorite changes update the loaded photos in
+// place — re-fetching would throw away every page loaded so far and jump back to the top.
+function buildGallery(firstPage, emptyStateVariant, fetchPage = null, firstLimit = PAGE_SIZE, { onRemove } = {}) {
   const wrapper = document.createElement('div');
   wrapper.className = 'paged-gallery';
   let photos = firstPage;
@@ -244,20 +309,44 @@ function buildGallery(firstPage, emptyStateVariant, fetchPage = null) {
   attachPhotoGalleryEvents(wrapper, handleToggleFavorite, handleDeletePhoto, handleOpenPhoto);
   attachEmptyStateBridge(wrapper);
 
-  if (fetchPage && firstPage.length === PAGE_SIZE) {
+  function rerender() {
+    const updated = renderPhotoGallery(photos, { emptyStateVariant });
+    gallery.replaceWith(updated);
+    gallery = updated;
+  }
+
+  wrapper.galleryController = {
+    removePhoto(photoId) {
+      if (!photos.some((photo) => photo.id === photoId)) return;
+      photos = photos.filter((photo) => photo.id !== photoId);
+      rerender();
+      if (onRemove) onRemove(photos);
+    },
+    // rerender: redraw now (for changes the card shows that weren't already applied to the DOM).
+    updatePhoto(photoId, changes, { rerender: redraw = false } = {}) {
+      photos = photos.map((photo) => (photo.id === photoId ? { ...photo, ...changes } : photo));
+      if (redraw) rerender();
+    }
+  };
+
+  if (fetchPage && firstPage.length === firstLimit) {
     wrapper.appendChild(
       createLoadMoreButton(async () => {
         const page = await fetchPage(photos.length);
         const seen = new Set(photos.map((photo) => photo.id));
         photos = photos.concat(page.filter((photo) => !seen.has(photo.id)));
-        const updated = renderPhotoGallery(photos, { emptyStateVariant });
-        gallery.replaceWith(updated);
-        gallery = updated;
+        rerender();
         return page.length === PAGE_SIZE;
       })
     );
   }
   return wrapper;
+}
+
+function getGalleryController() {
+  const main = getMain();
+  const wrapper = main && main.querySelector('.paged-gallery');
+  return wrapper ? wrapper.galleryController : null;
 }
 
 // loadNextPage() resolves to whether another page may exist.
@@ -417,21 +506,26 @@ async function renderAlbumDetail(albumId) {
       return;
     }
 
-    const photos = await getPhotos(albumId, 0, PAGE_SIZE);
+    const limit = takeFirstPageLimit();
+    const photos = await getPhotos(albumId, 0, limit);
     if (token !== renderToken) return;
     loading.remove();
 
     const view = renderAlbumView(album, photos);
     main.appendChild(view);
 
-    if (photos.length === PAGE_SIZE) {
+    if (photos.length === limit) {
       const grid = view.querySelector('.photo-grid');
-      let loaded = photos.length;
       view.appendChild(
         createLoadMoreButton(async () => {
-          const page = await getPhotos(albumId, loaded, PAGE_SIZE);
-          loaded += page.length;
-          page.forEach((photo) => grid.appendChild(createPhotoCard(photo)));
+          // Offset from what's on screen: deletes since the last page shift the server's offsets.
+          const shownIds = new Set(
+            Array.from(grid.querySelectorAll('.photo-card'), (card) => card.getAttribute('data-photo-id'))
+          );
+          const page = await getPhotos(albumId, shownIds.size, PAGE_SIZE);
+          page
+            .filter((photo) => !shownIds.has(photo.id))
+            .forEach((photo) => grid.appendChild(createPhotoCard(photo)));
           return page.length === PAGE_SIZE;
         })
       );
@@ -517,12 +611,21 @@ async function handleUploadPhotos(files) {
     }
 
     setTimeout(() => {
-      renderSection(currentSection);
+      rerenderKeepingPlace(result.uploaded.length, () => renderSection(currentSection));
     }, 1500);
   } catch (error) {
     console.error('Upload failed:', error);
     showError(describeError(error, 'Upload failed'));
   }
+}
+
+// Re-renders the current view with everything that was loaded (plus newly added photos) and
+// restores the scroll position, instead of snapping back to the first page at the top.
+async function rerenderKeepingPlace(addedCount, render) {
+  const scrollY = window.scrollY;
+  keepLoadedCount = loadedPhotoCount() + addedCount;
+  await render();
+  window.scrollTo(0, scrollY);
 }
 
 async function handleViewAlbum(albumId) {
@@ -554,7 +657,7 @@ function handleAddPhotos() {
       }
 
       setTimeout(() => {
-        renderAlbumDetail(currentAlbumId);
+        rerenderKeepingPlace(result.uploaded.length, () => renderAlbumDetail(currentAlbumId));
       }, 1500);
     } catch (error) {
       console.error('Add photos failed:', error);
@@ -575,17 +678,79 @@ async function handleDeletePhoto(photoId) {
   }
 
   if (currentAlbumId) {
-    await renderAlbumDetail(currentAlbumId);
+    removeAlbumPhotoCard(photoId);
+    return;
+  }
+  const controller = getGalleryController();
+  if (controller) {
+    controller.removePhoto(photoId);
   } else {
     await renderSection(currentSection);
   }
 }
 
-async function handleOpenPhoto(photoId) {
+function removeAlbumPhotoCard(photoId) {
+  const main = getMain();
+  const card = main.querySelector(`.photo-card[data-photo-id="${photoId}"]`);
+  if (card) card.remove();
+
+  const remaining = main.querySelectorAll('.photo-card').length;
+  if (remaining === 0) {
+    // Last loaded photo gone: re-render for the empty state (or the next page, if any).
+    renderAlbumDetail(currentAlbumId);
+    return;
+  }
+  const countEl = main.querySelector('.album-photo-count');
+  if (countEl) {
+    const count = Math.max(0, parseInt(countEl.dataset.count, 10) - 1);
+    countEl.dataset.count = String(count);
+    countEl.textContent = photoCountLabel(count);
+  }
+}
+
+async function handleOpenPhoto(photoId, { pushHistory = true } = {}) {
   try {
     const photo = await getPhoto(photoId);
     if (!photo) return;
-    openPhotoViewer(photo);
+    if (openViewer) openViewer.close();
+
+    const hash = window.location.hash;
+    // The viewer can add/remove a tutorial link or 3D model; reflect that on the card (badges)
+    // once it closes, and in the loaded photos a later in-place re-render draws from.
+    let changedPhoto = null;
+    const applyViewerChanges = () => {
+      const controller = getGalleryController();
+      if (changedPhoto && controller) {
+        const { tutorial_link, model_storage_path } = changedPhoto;
+        controller.updatePhoto(photoId, { tutorial_link, model_storage_path }, { rerender: true });
+      }
+      changedPhoto = null;
+    };
+    const viewer = openPhotoViewer(photo, {
+      onPhotoChange: (updated) => {
+        changedPhoto = updated;
+      },
+      // Dismissed by the user: drop the viewer's history entry so Back doesn't "reopen" nothing.
+      onClose: () => {
+        applyViewerChanges();
+        if (openViewer !== entry) return;
+        openViewer = null;
+        if (history.state && history.state.photoViewer === photoId) {
+          ignoreNextPopstate = true;
+          history.back();
+        }
+      }
+    });
+    const entry = {
+      photoId,
+      hash,
+      close: () => {
+        viewer.close();
+        applyViewerChanges();
+      }
+    };
+    openViewer = entry;
+    if (pushHistory) history.pushState({ photoViewer: photoId }, '', hash);
   } catch (error) {
     console.error('Failed to open photo:', error);
     showError(describeError(error, 'Failed to open photo'));
@@ -594,7 +759,9 @@ async function handleOpenPhoto(photoId) {
 
 async function handleToggleFavorite(photoId) {
   try {
-    await toggleFavorite(photoId);
+    const updated = await toggleFavorite(photoId);
+    const controller = getGalleryController();
+    if (controller) controller.updatePhoto(photoId, { is_favorite: updated.is_favorite });
     const app = document.getElementById('app');
     const card = app.querySelector(`.photo-card[data-photo-id="${photoId}"] .photo-card-favorite`);
     if (card) {
@@ -602,7 +769,11 @@ async function handleToggleFavorite(photoId) {
       card.setAttribute('aria-label', isFavorite ? 'Remove from favorites' : 'Add to favorites');
       card.setAttribute('aria-pressed', isFavorite ? 'true' : 'false');
       if (currentSection === 'favorites' && !isFavorite) {
-        await renderSection('favorites');
+        if (controller) {
+          controller.removePhoto(photoId);
+        } else {
+          await renderSection('favorites');
+        }
       }
     }
   } catch (error) {

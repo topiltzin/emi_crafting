@@ -331,12 +331,10 @@ export async function createPhoto(albumId, photoData) {
 
     if (insertError) throwClassified(insertError, 'Failed to save photo');
 
-    await adjustAlbumPhotoCount(client, albumId, 1);
 
     return toPhoto(inserted);
   } catch (error) {
-    // No row will point at these files, so nothing would ever clean them up. The row itself (if
-    // the count update is what failed) stays — it's a valid photo.
+    // No row will point at these files, so nothing would ever clean them up.
     if (uploadedPaths.length > 0 && !(await photoRowExists(client, photoId))) {
       const { error: cleanupError } = await client.storage.from(PHOTOS_BUCKET).remove(uploadedPaths);
       if (cleanupError) console.warn('Failed to clean up orphaned photo files:', cleanupError);
@@ -489,7 +487,6 @@ export async function deletePhoto(photoId, hard = false) {
     if (updateError) throwClassified(updateError, 'Failed to delete photo');
   }
 
-  await adjustAlbumPhotoCount(client, photo.album_id, -1);
 }
 
 export async function updatePhotoTutorialLink(photoId, tutorialLink) {
@@ -529,16 +526,6 @@ export async function toggleFavorite(photoId) {
 }
 
 // ----- Helpers -----
-
-// Atomic in the database (supabase/migrations/0003_adjust_album_photo_count.sql): with uploads
-// running concurrently, a read-then-write here would lose increments.
-async function adjustAlbumPhotoCount(client, albumId, delta) {
-  const { error } = await client.rpc('adjust_album_photo_count', {
-    p_album_id: albumId,
-    p_delta: delta
-  });
-  if (error) throwClassified(error, 'Failed to update album photo count');
-}
 
 function base64ToUint8Array(base64) {
   const raw = base64.includes(',') ? base64.split(',')[1] : base64;
