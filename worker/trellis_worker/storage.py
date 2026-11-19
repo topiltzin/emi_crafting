@@ -16,22 +16,22 @@ def model_path(owner_id: str, photo_id: str, job_id: str) -> str:
     return f"{owner_id}/{photo_id}/model-{job_id}.glb"
 
 
-def download_original(sb: Any, storage_path: str) -> bytes:
-    data = sb.storage.from_(PHOTOS_BUCKET).download(storage_path)
+def download_original(sb: Any, storage_path: str, bucket: str = PHOTOS_BUCKET) -> bytes:
+    data = sb.storage.from_(bucket).download(storage_path)
     return bytes(data)
 
 
-def upload_model(sb: Any, path: str, data: bytes) -> None:
-    sb.storage.from_(PHOTOS_BUCKET).upload(
+def upload_model(sb: Any, path: str, data: bytes, bucket: str = PHOTOS_BUCKET) -> None:
+    sb.storage.from_(bucket).upload(
         path, data, {"content-type": GLB_CONTENT_TYPE, "upsert": "false"}
     )
 
 
-def remove_paths(sb: Any, paths: list[str]) -> None:
+def remove_paths(sb: Any, paths: list[str], bucket: str = PHOTOS_BUCKET) -> None:
     paths = [p for p in paths if p]
     if not paths:
         return
     try:
-        sb.storage.from_(PHOTOS_BUCKET).remove(paths)
+        sb.storage.from_(bucket).remove(paths)
     except Exception:
         log.exception("Failed to remove storage objects %s", paths)

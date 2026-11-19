@@ -1,4 +1,8 @@
-"""Runs one claimed conversion job end to end (data-model.md "Completing a job")."""
+"""Runs one claimed job end to end (data-model.md "Completing a job").
+
+The queue profile decides where the input comes from, where the model is written, and which RPCs
+record the outcome. The default profile (`emi`) is emi_crafting's photo conversion, unchanged.
+"""
 
 from __future__ import annotations
 
@@ -13,6 +17,7 @@ from typing import Any
 from .config import Config
 from .errors import ConversionError, classify
 from .image_prep import prepare_image
+from .profiles import Profile, get_profile
 from .settings import validate_settings
 from .sf3d import generate_glb
 from .storage import download_original, model_path, remove_paths, upload_model
@@ -57,20 +62,38 @@ def _load_photo(sb: Any, photo_id: str) -> dict[str, Any] | None:
     return dict(resp.data)
 
 
+def _input_key(sb: Any, profile: Profile, job: dict[str, Any]) -> str | None:
+    """Storage key of the job's input, or None when the job should be discarded."""
+    if not profile.photo_linked:
+        return str(job["input_key"])
+    photo = _load_photo(sb, str(job["photo_id"]))
+    if photo is None:
+        # Hard-deleted: the job row is already gone by ON DELETE CASCADE.
+        log.info("job %s discarded: photo %s no longer exists", job["id"], job["photo_id"])
+        return None
+    return str(photo["storage_path"])
+
+
+def _model_object_path(profile: Profile, job: dict[str, Any], job_id: str) -> str:
+    if not profile.photo_linked:
+        return f"models/{job_id}.glb"
+    return model_path(str(job["owner_id"]), str(job["photo_id"]), job_id)
+
+
 def run_job(
     sb: Any,
     cfg: Config,
     job: dict[str, Any],
     *,
     generate: Generate = generate_glb,
+    profile: Profile | None = None,
 ) -> None:
+    profile = profile or get_profile(cfg.queue_mode)
     job_id = str(job["id"])
     uploaded: str | None = None
     try:
-        photo = _load_photo(sb, str(job["photo_id"]))
-        if photo is None:
-            # Hard-deleted: the job row is already gone by ON DELETE CASCADE.
-            log.info("job %s discarded: photo %s no longer exists", job_id, job["photo_id"])
+        input_key = _input_key(sb, profile, job)
+        if input_key is None:
             return
 
         settings = validate_settings(dict(job["settings"]))
@@ -78,7 +101,8 @@ def run_job(
 
         with tempfile.TemporaryDirectory(prefix=f"model-{job_id}-") as tmp:
             workdir = Path(tmp)
-            image_path = prepare_image(download_original(sb, photo["storage_path"]), workdir)
+            source = download_original(sb, input_key, profile.input_bucket)
+            image_path = prepare_image(source, workdir)
             glb = generate(
                 image_path,
                 int(job["seed"]),
@@ -90,13 +114,13 @@ def run_job(
         if len(glb) > MAX_MODEL_BYTES:
             raise ConversionError("RESULT_TOO_LARGE")
 
-        path = model_path(str(job["owner_id"]), str(job["photo_id"]), job_id)
-        upload_model(sb, path, glb)
+        path = _model_object_path(profile, job, job_id)
+        upload_model(sb, path, glb, profile.model_bucket)
         uploaded = path
 
         result = _rows(
             sb.rpc(
-                "complete_model_conversion",
+                profile.complete_rpc,
                 {"p_job_id": job_id, "p_path": path, "p_size": len(glb)},
             )
             .execute()
@@ -106,21 +130,21 @@ def run_job(
 
         if outcome.get("discard"):
             log.info("job %s discarded: photo deleted or job no longer processing", job_id)
-            remove_paths(sb, [path])
+            remove_paths(sb, [path], profile.model_bucket)
             return
 
         if outcome.get("old_path"):
-            remove_paths(sb, [str(outcome["old_path"])])
+            remove_paths(sb, [str(outcome["old_path"])], profile.model_bucket)
         log.info("job %s completed: %s (%d bytes)", job_id, path, len(glb))
 
     except Exception as exc:
         err = classify(exc)
         log.exception("job %s failed with %s", job_id, err.code)
         if uploaded:
-            remove_paths(sb, [uploaded])
+            remove_paths(sb, [uploaded], profile.model_bucket)
         try:
             sb.rpc(
-                "fail_model_conversion",
+                profile.fail_rpc,
                 {"p_job_id": job_id, "p_code": err.code, "p_message": err.user_message},
             ).execute()
         except Exception:

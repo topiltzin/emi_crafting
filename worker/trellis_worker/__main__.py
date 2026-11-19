@@ -13,13 +13,15 @@ from typing import Any
 
 from .config import Config, load_config
 from .job_runner import run_job
+from .profiles import EMI_PROFILE, Profile, get_profile
 from .sf3d import check_api
 
 log = logging.getLogger("trellis_worker")
 
 
-def claim_next(sb: Any, worker_id: str) -> dict[str, Any] | None:
-    data = sb.rpc("claim_model_conversion", {"p_worker_id": worker_id}).execute().data
+def claim_next(sb: Any, worker_id: str, profile: Profile | None = None) -> dict[str, Any] | None:
+    profile = profile or get_profile(EMI_PROFILE)
+    data = sb.rpc(profile.claim_rpc, {"p_worker_id": worker_id}).execute().data
     row = data[0] if isinstance(data, list) and data else data
     # A composite-returning function with no match comes back as a row of nulls.
     if not isinstance(row, dict) or not row.get("id"):
@@ -29,13 +31,17 @@ def claim_next(sb: Any, worker_id: str) -> dict[str, Any] | None:
 
 def run_cycle(sb: Any, cfg: Config) -> bool:
     """Runs one poll cycle; returns True if a job was processed."""
-    stale = sb.rpc("fail_stale_model_conversions", {}).execute().data
+    profile = get_profile(cfg.queue_mode)
+    stale = sb.rpc(profile.stale_rpc, {}).execute().data
     if stale:
         log.info("marked %s stale job(s) as timed out", stale)
-    job = claim_next(sb, cfg.worker_id)
+    job = claim_next(sb, cfg.worker_id, profile)
     if job is None:
         return False
-    log.info("claimed job %s for photo %s", job["id"], job["photo_id"])
+    if profile.photo_linked:
+        log.info("claimed job %s for photo %s", job["id"], job["photo_id"])
+    else:
+        log.info("claimed job %s", job["id"])
     run_job(sb, cfg, job)
     return True
 
